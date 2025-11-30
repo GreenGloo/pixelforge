@@ -1,0 +1,178 @@
+// PixelForge Database Schema
+// Prisma schema for SQLite (standalone development)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USER & AUTH
+// ==========================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  passwordHash  String?
+  emailVerified DateTime?
+
+  // Credits & Plan
+  credits       Int       @default(20)
+  plan          String    @default("FREE")
+
+  // Stripe
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  generations   Generation[]
+  transactions  CreditTransaction[]
+  projects      Project[]
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ==========================================
+// GENERATION
+// ==========================================
+
+model Generation {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Prompt settings
+  prompt        String
+  negativePrompt String?
+  style         String    @default("CHARACTER")
+
+  // Image settings
+  width         Int       @default(512)
+  height        Int       @default(512)
+  pixelSize     Int       @default(64)
+
+  // Status
+  status        String    @default("PENDING")
+
+  // Results
+  imageUrl      String?
+  thumbnailUrl  String?
+
+  // Cost tracking
+  cost          Int       @default(1)
+
+  // Metadata (stores model params, seed, etc.)
+  metadata      String?
+
+  // Error tracking
+  errorMessage  String?
+
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+// ==========================================
+// CREDITS & TRANSACTIONS
+// ==========================================
+
+model CreditTransaction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount          Int
+  type            String
+  description     String?
+
+  // Stripe reference
+  stripePaymentId String?
+  stripeInvoiceId String?
+
+  // For generation tracking
+  generationId    String?
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+}
+
+// ==========================================
+// PROJECTS (Canvas/Animation state)
+// ==========================================
+
+model Project {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String
+  type          String    @default("IMAGE")
+
+  // Canvas dimensions
+  width         Int       @default(64)
+  height        Int       @default(64)
+
+  // Full project state (layers, frames, etc.)
+  data          String
+
+  // Preview
+  thumbnailUrl  String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, updatedAt])
+}

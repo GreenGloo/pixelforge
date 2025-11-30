@@ -1,0 +1,903 @@
+// ==========================================
+// Retro Diffusion via Replicate
+// Specialized for pixel art sprite generation and character turnarounds
+// Uses retro-diffusion/rd-plus model on Replicate
+// ==========================================
+
+import Replicate from 'replicate';
+
+// Retro Diffusion style presets available on rd-plus
+export type RetroDiffusionStyle =
+  | 'default'
+  | 'retro'
+  | 'watercolor'
+  | 'textured'
+  | 'cartoon'
+  | 'ui_element'
+  | 'item_sheet'
+  | 'character_turnaround'  // Character sprites from different angles
+  | 'environment'
+  | 'isometric'
+  | 'isometric_asset'
+  | 'topdown_map'
+  | 'topdown_asset'
+  | 'classic'
+  | 'topdown_item'
+  | 'low_res'
+  | 'mc_item'
+  | 'mc_texture'
+  | 'skill_icon';
+
+// Standard sprite sizes for game assets
+export type SpriteSize = 16 | 32 | 48 | 64 | 96 | 128;
+
+// Pose presets for consistent character sprites
+export type PosePreset =
+  | 'idle_front'
+  | 'idle_side'
+  | 'walk_cycle'
+  | 'run_cycle'
+  | 'attack_melee'
+  | 'attack_ranged'
+  | 'jump'
+  | 'crouch'
+  | 'death'
+  | 'hurt';
+
+// Color palette presets
+export type ColorPalette =
+  | 'default'       // No restriction
+  | 'gameboy'       // 4 colors: green shades
+  | 'nes'           // NES palette
+  | 'snes'          // SNES palette
+  | 'pico8'         // PICO-8 16 colors
+  | 'endesga32'     // Popular 32 color palette
+  | 'fantasy'       // Warm fantasy colors
+  | 'cyberpunk'     // Neon/dark colors
+  | 'nature'        // Greens and browns
+  | 'monochrome';   // Single hue variations
+
+// Background layer types for parallax-ready generation
+export type BackgroundLayer =
+  | 'sky'           // Far background: sky, clouds, sun/moon
+  | 'far'           // Distant elements: mountains, buildings
+  | 'midground'     // Middle layer: trees, structures
+  | 'foreground'    // Near elements: foliage, ground details
+  | 'ground';       // Walking surface
+
+// Background theme presets
+export type BackgroundTheme =
+  | 'forest'        // Trees, nature, outdoor
+  | 'dungeon'       // Dark, stone, underground
+  | 'castle'        // Medieval architecture
+  | 'city'          // Urban environment
+  | 'desert'        // Sand, dunes, arid
+  | 'snow'          // Winter, ice, cold
+  | 'underwater'    // Ocean, bubbles, coral
+  | 'space'         // Stars, planets, cosmic
+  | 'cave'          // Rocky, dark, crystals
+  | 'village'       // Rural, cottages, peaceful
+  | 'battlefield'   // War-torn, dramatic
+  | 'sky'           // Clouds, floating islands
+  | 'custom';       // User-defined
+
+// Palette color definitions for prompt engineering
+const PALETTE_PROMPTS: Record<ColorPalette, string> = {
+  default: '',
+  gameboy: 'gameboy color palette, 4 shades of green, monochrome green',
+  nes: 'NES color palette, limited colors, retro 8-bit colors',
+  snes: 'SNES color palette, 16-bit colors, vibrant retro',
+  pico8: 'PICO-8 palette, 16 colors, retro indie game style',
+  endesga32: 'endesga-32 palette, warm colors, indie game aesthetic',
+  fantasy: 'warm fantasy colors, golden highlights, rich earth tones',
+  cyberpunk: 'cyberpunk palette, neon pink, cyan, dark purple, high contrast',
+  nature: 'nature palette, forest greens, earth browns, natural tones',
+  monochrome: 'monochrome palette, single color variations, grayscale with tint',
+};
+
+// Pose descriptions for consistent framing
+const POSE_PROMPTS: Record<PosePreset, string> = {
+  idle_front: 'standing idle pose, front facing view, arms at sides, neutral stance, full body visible',
+  idle_side: 'standing idle pose, side profile view, arms at sides, full body visible',
+  walk_cycle: 'walking pose, mid-stride, one foot forward, full body visible',
+  run_cycle: 'running pose, dynamic movement, arms pumping, full body visible',
+  attack_melee: 'melee attack pose, weapon raised, dynamic action pose, full body visible',
+  attack_ranged: 'ranged attack pose, aiming stance, bow or gun ready, full body visible',
+  jump: 'jumping pose, legs bent, arms up, airborne, full body visible',
+  crouch: 'crouching pose, knees bent, low stance, full body visible',
+  death: 'fallen pose, lying down, defeated, full body visible',
+  hurt: 'hurt pose, recoiling, pain reaction, full body visible',
+};
+
+// Background theme descriptions for consistent environments
+const THEME_PROMPTS: Record<BackgroundTheme, string> = {
+  forest: 'lush forest environment, trees, foliage, nature, outdoor woodland',
+  dungeon: 'dark dungeon interior, stone walls, torches, underground, mysterious',
+  castle: 'medieval castle architecture, stone walls, towers, gothic style',
+  city: 'urban cityscape, buildings, streets, modern or fantasy city',
+  desert: 'arid desert landscape, sand dunes, cacti, sun-scorched terrain',
+  snow: 'winter wonderland, snow-covered, ice, cold atmosphere, frozen',
+  underwater: 'ocean depths, coral reefs, bubbles, aquatic environment',
+  space: 'cosmic scene, stars, nebulae, planets, space environment',
+  cave: 'rocky cave interior, stalactites, crystals, underground cavern',
+  village: 'peaceful village scene, cottages, rural, quaint buildings',
+  battlefield: 'war-torn battlefield, dramatic, destruction, conflict zone',
+  sky: 'floating sky islands, clouds, heavenly, aerial landscape',
+  custom: '',
+};
+
+// Layer-specific prompts for parallax backgrounds
+const LAYER_PROMPTS: Record<BackgroundLayer, string> = {
+  sky: 'far background layer, sky only, clouds, sun or moon, atmospheric, no ground elements, seamless horizontal tile',
+  far: 'distant background layer, silhouette mountains or buildings, low detail, atmospheric perspective, seamless horizontal tile',
+  midground: 'middle distance layer, trees or structures, medium detail, partially transparent areas for layering, seamless horizontal tile',
+  foreground: 'near foreground layer, detailed foliage or objects, high detail, mostly transparent, seamless horizontal tile',
+  ground: 'ground layer, walking surface, platform tiles, solid ground texture, seamless horizontal tile',
+};
+
+export interface SpriteRotationResult {
+  frontUrl: string;
+  rightUrl: string;
+  backUrl: string;
+  leftUrl: string;
+}
+
+export interface SpriteGenerationOptions {
+  size?: SpriteSize;
+  pose?: PosePreset;
+  palette?: ColorPalette;
+  style?: RetroDiffusionStyle;
+  seed?: number;
+  removeBackground?: boolean;
+}
+
+export interface BackgroundGenerationOptions {
+  theme?: BackgroundTheme;
+  layer?: BackgroundLayer;
+  palette?: ColorPalette;
+  width?: number;
+  height?: number;
+  seed?: number;
+  seamless?: boolean;  // Whether to generate seamless/tileable background
+}
+
+export interface BackgroundResult {
+  imageUrl: string;
+  seed: number;
+  layer: BackgroundLayer;
+  theme: BackgroundTheme;
+}
+
+export interface ParallaxBackgroundResult {
+  layers: {
+    sky?: string;
+    far?: string;
+    midground?: string;
+    foreground?: string;
+    ground?: string;
+  };
+  seed: number;
+  theme: BackgroundTheme;
+}
+
+/**
+ * Build an optimized prompt for game sprite generation
+ * Ensures proper framing, full body visibility, and consistent style
+ */
+function buildSpritePrompt(
+  characterDescription: string,
+  options: {
+    pose?: PosePreset;
+    palette?: ColorPalette;
+  } = {}
+): string {
+  const parts: string[] = [];
+
+  // Core framing instructions (always include)
+  parts.push('pixel art game sprite');
+  parts.push('full body visible');
+  parts.push('centered in frame');
+  parts.push('clear edges');
+  parts.push('padding around character');
+
+  // Character description
+  parts.push(characterDescription);
+
+  // Pose instructions
+  if (options.pose) {
+    parts.push(POSE_PROMPTS[options.pose]);
+  }
+
+  // Color palette
+  if (options.palette && options.palette !== 'default') {
+    parts.push(PALETTE_PROMPTS[options.palette]);
+  }
+
+  // Quality markers
+  parts.push('clean pixel art');
+  parts.push('no cut off');
+  parts.push('complete character');
+
+  return parts.join(', ');
+}
+
+// Banned words that create problematic outputs in backgrounds
+const BACKGROUND_BANNED_WORDS = [
+  '3d', 'depth', 'perspective', 'vanishing point', 'fisheye',
+  'isometric', 'angle', 'birds eye', 'aerial', 'from above',
+  'character', 'person', 'figure', 'npc', 'enemy', 'player',
+  'boss', 'monster', 'creature', 'sprite',
+];
+
+// Sanitize description by removing banned words
+function sanitizeBackgroundDescription(description: string): string {
+  let sanitized = description.toLowerCase();
+  for (const word of BACKGROUND_BANNED_WORDS) {
+    sanitized = sanitized.replace(new RegExp(word, 'gi'), '');
+  }
+  // Clean up extra spaces/commas
+  return sanitized.replace(/\s+/g, ' ').replace(/,\s*,/g, ',').trim();
+}
+
+/**
+ * Build an optimized prompt for game background generation
+ * Ensures flat composition, parallax-ready layers, and seamless tiling
+ * Now includes negative prompts for better quality control
+ */
+function buildBackgroundPrompt(
+  description: string,
+  options: {
+    theme?: BackgroundTheme;
+    layer?: BackgroundLayer;
+    palette?: ColorPalette;
+    seamless?: boolean;
+  } = {}
+): { prompt: string; negativePrompt: string } {
+  const parts: string[] = [];
+
+  // Core background instructions - FLAT COMPOSITION IS CRITICAL
+  parts.push('pixel art game background');
+  parts.push('2D game background layer');
+  parts.push('flat horizontal composition');
+  parts.push('no perspective');
+  parts.push('side-scrolling view');
+  parts.push('parallax-ready');
+  parts.push('flat 2D scene');
+  parts.push('straight horizon line');
+
+  // Theme styling
+  if (options.theme && options.theme !== 'custom') {
+    parts.push(THEME_PROMPTS[options.theme]);
+  }
+
+  // Sanitized user description
+  if (description) {
+    const sanitized = sanitizeBackgroundDescription(description);
+    if (sanitized) {
+      parts.push(sanitized);
+    }
+  }
+
+  // Layer-specific instructions
+  if (options.layer) {
+    parts.push(LAYER_PROMPTS[options.layer]);
+  }
+
+  // Color palette
+  if (options.palette && options.palette !== 'default') {
+    parts.push(PALETTE_PROMPTS[options.palette]);
+  }
+
+  // Seamless tiling
+  if (options.seamless !== false) {
+    parts.push('seamless horizontal tile');
+    parts.push('tileable');
+    parts.push('repeating pattern');
+  }
+
+  // Quality markers
+  parts.push('clean pixel art');
+  parts.push('game asset quality');
+  parts.push('no characters');
+  parts.push('environment only');
+
+  // Comprehensive negative prompt for backgrounds
+  const negativePrompt = [
+    // Block 3D/perspective
+    '3d render', 'depth perspective', 'vanishing point', 'isometric view',
+    'birds eye view', 'aerial perspective', 'fisheye', 'camera angle',
+    // Block characters
+    'character', 'person', 'figure', 'npc', 'creature', 'monster',
+    'sprite', 'player', 'enemy', 'boss',
+    // Block quality issues
+    'blurry', 'smooth', 'anti-aliased', 'gradient',
+    'realistic', 'photograph', 'watermark', 'text', 'signature',
+    // Block non-pixel styles
+    'oil painting', 'watercolor', 'sketch', 'drawing',
+    'vector', 'cartoon', 'anime',
+  ].join(', ');
+
+  return {
+    prompt: parts.join(', '),
+    negativePrompt,
+  };
+}
+
+function getReplicateClient(): Replicate | null {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    return null;
+  }
+  return new Replicate({ auth: apiKey });
+}
+
+export function isRetroDiffusionConfigured(): boolean {
+  return !!process.env.REPLICATE_API_TOKEN;
+}
+
+/**
+ * Extract base64 data from a data URL or return as-is if already base64
+ */
+function extractBase64(imageData: string): string {
+  if (imageData.startsWith('data:image/')) {
+    const base64Part = imageData.split(',')[1];
+    return base64Part || imageData;
+  }
+  return imageData;
+}
+
+/**
+ * Convert output to a usable URL
+ * Replicate's FileOutput objects use toString() to return the URL string
+ */
+function toImageUrl(output: unknown): string {
+  if (typeof output === 'string') {
+    return output;
+  }
+  if (Array.isArray(output) && output.length > 0) {
+    const first = output[0];
+    if (typeof first === 'string') {
+      return first;
+    }
+    // Replicate FileOutput objects implement toString() that returns the URL
+    if (first && typeof first === 'object') {
+      const str = String(first);
+      if (str.startsWith('http')) {
+        console.log('Got image URL:', str);
+        return str;
+      }
+    }
+  }
+  // Handle single FileOutput object
+  if (output && typeof output === 'object') {
+    const str = String(output);
+    if (str.startsWith('http')) {
+      console.log('Got image URL:', str);
+      return str;
+    }
+  }
+
+  console.error('Unexpected output format:', typeof output, output);
+  throw new Error('Unexpected output format from Replicate');
+}
+
+/**
+ * Generate pixel art using Retro Diffusion on Replicate
+ * Now supports negative_prompt for better quality control
+ */
+async function generateWithRetroDiffusion(params: {
+  prompt: string;
+  negativePrompt?: string;
+  style?: RetroDiffusionStyle;
+  width?: number;
+  height?: number;
+  inputImage?: string;
+  strength?: number;
+  removeBackground?: boolean;
+  seed?: number;
+}): Promise<string> {
+  const replicate = getReplicateClient();
+  if (!replicate) {
+    throw new Error('Replicate API not configured. Set REPLICATE_API_TOKEN.');
+  }
+
+  const {
+    prompt,
+    negativePrompt,
+    style = 'default',
+    width = 64,
+    height = 64,
+    inputImage,
+    strength = 0.7,
+    removeBackground = true,
+    seed,
+  } = params;
+
+  const input: Record<string, unknown> = {
+    prompt,
+    style,
+    width,
+    height,
+    remove_bg: removeBackground,
+    num_images: 1,
+  };
+
+  // Add negative prompt if provided
+  if (negativePrompt) {
+    input.negative_prompt = negativePrompt;
+  }
+
+  if (seed !== undefined) {
+    input.seed = seed;
+  }
+
+  if (inputImage) {
+    // Replicate expects a data URL for input_image
+    const base64 = extractBase64(inputImage);
+    input.input_image = `data:image/png;base64,${base64}`;
+    input.strength = strength;
+  }
+
+  console.log('Calling Retro Diffusion on Replicate:', {
+    style,
+    width,
+    height,
+    hasInputImage: !!inputImage,
+    removeBackground,
+    hasNegativePrompt: !!negativePrompt,
+  });
+
+  const output = await replicate.run(
+    'retro-diffusion/rd-plus' as `${string}/${string}`,
+    { input }
+  );
+
+  return toImageUrl(output);
+}
+
+/**
+ * Generate a character turnaround using Retro Diffusion's character_turnaround style
+ * This generates a sprite sheet with all 4 rotations in one image
+ */
+export async function generateCharacterTurnaround(
+  sourceImage: string,
+  options?: {
+    characterDescription?: string;
+    width?: number;
+    height?: number;
+  }
+): Promise<SpriteRotationResult> {
+  const description = options?.characterDescription || 'character sprite';
+  const spriteWidth = options?.width || 64;
+  const spriteHeight = options?.height || 64;
+
+  console.log('Generating character turnaround with Retro Diffusion...');
+  console.log('Source image provided:', sourceImage ? 'Yes' : 'No');
+  console.log('Character description:', description);
+
+  // First, generate the turnaround sprite sheet
+  // The character_turnaround style creates all 4 views
+  let turnaroundUrl: string;
+  try {
+    turnaroundUrl = await generateWithRetroDiffusion({
+      prompt: description,
+      style: 'character_turnaround',
+      // Output will be wider to contain all 4 sprites
+      width: spriteWidth * 4,  // 4 sprites side by side
+      height: spriteHeight,
+      inputImage: sourceImage,
+      strength: 0.75,  // Balance between reference and rotation
+      removeBackground: true,
+    });
+    console.log('Generated turnaround sprite sheet:', turnaroundUrl?.substring?.(0, 100) || turnaroundUrl);
+  } catch (error) {
+    console.error('Failed to generate turnaround sheet:', error);
+    turnaroundUrl = '';
+  }
+
+  // The turnaround typically outputs: front, right, back, left in one image
+  // For now, we'll generate each view separately for better quality
+  // since the sprite sheet would need to be split client-side
+
+  // Generate individual rotations with the source as reference
+  const frontUrl = sourceImage.startsWith('data:')
+    ? sourceImage
+    : `data:image/png;base64,${extractBase64(sourceImage)}`;
+
+  const directions = [
+    { name: 'right', prompt: `${description}, right side view, profile facing right` },
+    { name: 'back', prompt: `${description}, back view, facing away from camera` },
+    { name: 'left', prompt: `${description}, left side view, profile facing left` },
+  ];
+
+  const results: Record<string, string> = {
+    front: frontUrl,  // Use original as front
+  };
+
+  // Generate other rotations
+  for (const dir of directions) {
+    console.log(`Generating ${dir.name} view...`);
+
+    try {
+      const imageUrl = await generateWithRetroDiffusion({
+        prompt: dir.prompt,
+        style: 'default',  // Use default style for individual sprites
+        width: spriteWidth,
+        height: spriteHeight,
+        inputImage: sourceImage,
+        strength: 0.7,
+        removeBackground: true,
+      });
+
+      results[dir.name] = imageUrl;
+      console.log(`${dir.name} view generated: ${typeof imageUrl === 'string' ? imageUrl.substring(0, 50) : imageUrl}...`);
+    } catch (error) {
+      console.error(`Failed to generate ${dir.name} view:`, error);
+      // Fallback: use the source image
+      results[dir.name] = frontUrl;
+    }
+  }
+
+  return {
+    frontUrl: results.front,
+    rightUrl: results.right,
+    backUrl: results.back,
+    leftUrl: results.left,
+  };
+}
+
+/**
+ * Generate pixel art sprite using Retro Diffusion
+ */
+export async function generatePixelArt(
+  prompt: string,
+  options?: {
+    width?: number;
+    height?: number;
+    style?: RetroDiffusionStyle;
+    seed?: number;
+    removeBackground?: boolean;
+  }
+): Promise<string> {
+  return generateWithRetroDiffusion({
+    prompt,
+    width: options?.width || 64,
+    height: options?.height || 64,
+    style: options?.style || 'default',
+    seed: options?.seed,
+    removeBackground: options?.removeBackground ?? true,
+  });
+}
+
+/**
+ * Generate game-ready sprite with pose presets, palette control, and proper framing
+ * This is the main function for consistent game asset generation
+ */
+export async function generateGameSprite(
+  characterDescription: string,
+  options: SpriteGenerationOptions = {}
+): Promise<{ imageUrl: string; seed: number }> {
+  const {
+    size = 64,
+    pose,
+    palette = 'default',
+    style = 'default',
+    seed = Math.floor(Math.random() * 2147483647),
+    removeBackground = true,
+  } = options;
+
+  // Build optimized prompt with framing, pose, and palette
+  const optimizedPrompt = buildSpritePrompt(characterDescription, { pose, palette });
+
+  console.log('Generating game sprite:', {
+    description: characterDescription,
+    size,
+    pose,
+    palette,
+    style,
+    optimizedPrompt,
+  });
+
+  const imageUrl = await generateWithRetroDiffusion({
+    prompt: optimizedPrompt,
+    style,
+    width: size,
+    height: size,
+    seed,
+    removeBackground,
+  });
+
+  return { imageUrl, seed };
+}
+
+/**
+ * Generate item sheet using Retro Diffusion
+ */
+export async function generateItemSheet(
+  prompt: string,
+  options?: {
+    width?: number;
+    height?: number;
+    seed?: number;
+  }
+): Promise<string> {
+  return generateWithRetroDiffusion({
+    prompt,
+    width: options?.width || 256,
+    height: options?.height || 256,
+    style: 'item_sheet',
+    seed: options?.seed,
+    removeBackground: true,
+  });
+}
+
+// Animation style types for rd-animation model
+export type AnimationStyle =
+  | 'animation__four_angle_walking'  // 4 directions x 4 frames walking
+  | 'animation__small_sprites';       // Smaller sprites
+
+export interface AnimationResult {
+  spriteSheetUrl: string;
+  frameCount: number;
+  directions: number;
+  seed: number;
+}
+
+/**
+ * Generate a walking animation sprite sheet using rd-animation model
+ * Returns a sprite sheet with 4 directions (front, right, back, left) x 4 frames
+ */
+export async function generateWalkingAnimation(
+  prompt: string,
+  options?: {
+    seed?: number;
+    style?: AnimationStyle;
+  }
+): Promise<AnimationResult> {
+  const replicate = getReplicateClient();
+  if (!replicate) {
+    throw new Error('Replicate API not configured. Set REPLICATE_API_TOKEN.');
+  }
+
+  const style = options?.style || 'animation__four_angle_walking';
+  const seed = options?.seed || Math.floor(Math.random() * 2147483647);
+
+  // rd-animation is locked to 48x48 for walking animations
+  const input: Record<string, unknown> = {
+    prompt: `${prompt}, pixel art game sprite`,
+    prompt_style: style,
+    width: 48,
+    height: 48,
+    seed,
+    return_spritesheet: true,
+  };
+
+  console.log('Generating walking animation with rd-animation:', {
+    prompt,
+    style,
+    seed,
+  });
+
+  const output = await replicate.run(
+    'retro-diffusion/rd-animation' as `${string}/${string}`,
+    { input }
+  );
+
+  const spriteSheetUrl = toImageUrl(output);
+
+  return {
+    spriteSheetUrl,
+    frameCount: 4,  // rd-animation produces 4 frames per direction
+    directions: 4,   // 4 directions (front, right, back, left)
+    seed,
+  };
+}
+
+/**
+ * Generate animation frames using rd-plus with sequential frame prompts
+ * This gives more control over the animation style
+ */
+export async function generateAnimationFrames(
+  prompt: string,
+  options?: {
+    motionType?: 'idle' | 'walk' | 'run' | 'attack' | 'jump';
+    frameCount?: number;
+    width?: number;
+    height?: number;
+    seed?: number;
+  }
+): Promise<{ frames: string[]; seed: number }> {
+  const replicate = getReplicateClient();
+  if (!replicate) {
+    throw new Error('Replicate API not configured. Set REPLICATE_API_TOKEN.');
+  }
+
+  const {
+    motionType = 'idle',
+    frameCount = 4,
+    width = 64,
+    height = 64,
+    seed = Math.floor(Math.random() * 2147483647),
+  } = options || {};
+
+  // Motion frame descriptions for each type
+  const motionFrames: Record<string, string[]> = {
+    idle: [
+      'standing still, neutral pose',
+      'subtle breathing, slight body movement',
+      'relaxed stance, gentle sway',
+      'returning to neutral pose',
+    ],
+    walk: [
+      'walking cycle frame 1, left foot forward',
+      'walking cycle frame 2, passing position',
+      'walking cycle frame 3, right foot forward',
+      'walking cycle frame 4, passing position',
+    ],
+    run: [
+      'running cycle frame 1, pushing off',
+      'running cycle frame 2, airborne',
+      'running cycle frame 3, landing',
+      'running cycle frame 4, mid-stride',
+    ],
+    attack: [
+      'attack windup, preparing to strike',
+      'attack swing, weapon raised',
+      'attack impact, full extension',
+      'attack recovery, returning to stance',
+    ],
+    jump: [
+      'jump crouch, preparing to leap',
+      'jump ascent, rising up',
+      'jump peak, at highest point',
+      'jump descent, falling down',
+    ],
+  };
+
+  const frameDescriptions = motionFrames[motionType] || motionFrames.idle;
+  const frames: string[] = [];
+
+  // Generate each frame with the same seed for consistency
+  for (let i = 0; i < Math.min(frameCount, frameDescriptions.length); i++) {
+    console.log(`Generating frame ${i + 1}/${frameCount}...`);
+
+    const framePrompt = `${prompt}, ${frameDescriptions[i]}, pixel art sprite animation frame`;
+
+    const frameUrl = await generateWithRetroDiffusion({
+      prompt: framePrompt,
+      style: 'default',
+      width,
+      height,
+      seed: seed + i,  // Slight seed variation for animation
+      removeBackground: true,
+    });
+
+    frames.push(frameUrl);
+  }
+
+  return { frames, seed };
+}
+
+/**
+ * Generate a single game background layer using Retro Diffusion
+ * Uses environment style for best background results
+ * Now includes negative prompts for better quality control
+ */
+export async function generateGameBackground(
+  description: string,
+  options: BackgroundGenerationOptions = {}
+): Promise<BackgroundResult> {
+  const {
+    theme = 'forest',
+    layer = 'midground',
+    palette = 'default',
+    width = 256,
+    height = 128,
+    seed = Math.floor(Math.random() * 2147483647),
+    seamless = true,
+  } = options;
+
+  // Build optimized prompt with theme, layer, and style (now includes negative prompt)
+  const { prompt: optimizedPrompt, negativePrompt } = buildBackgroundPrompt(description, {
+    theme,
+    layer,
+    palette,
+    seamless,
+  });
+
+  console.log('Generating game background:', {
+    description,
+    theme,
+    layer,
+    width,
+    height,
+    optimizedPrompt: optimizedPrompt.substring(0, 100) + '...',
+    hasNegativePrompt: !!negativePrompt,
+  });
+
+  // Use environment style for backgrounds, topdown_asset for ground layers
+  // Note: topdown_map doesn't exist in RD - use topdown_asset instead
+  const style: RetroDiffusionStyle = layer === 'ground' ? 'topdown_asset' : 'environment';
+
+  const imageUrl = await generateWithRetroDiffusion({
+    prompt: optimizedPrompt,
+    negativePrompt, // Now passing negative prompt for better quality
+    style,
+    width,
+    height,
+    seed,
+    removeBackground: layer !== 'sky' && layer !== 'ground', // Keep bg for sky/ground, transparent for layers
+  });
+
+  return {
+    imageUrl,
+    seed,
+    layer,
+    theme,
+  };
+}
+
+/**
+ * Generate a complete parallax background set with multiple layers
+ * Generates sky, far, midground, foreground, and ground layers
+ */
+export async function generateParallaxBackground(
+  description: string,
+  options: {
+    theme?: BackgroundTheme;
+    palette?: ColorPalette;
+    width?: number;
+    height?: number;
+    layers?: BackgroundLayer[];
+    seed?: number;
+  } = {}
+): Promise<ParallaxBackgroundResult> {
+  const {
+    theme = 'forest',
+    palette = 'default',
+    width = 256,
+    height = 128,
+    layers = ['sky', 'far', 'midground', 'foreground', 'ground'],
+    seed = Math.floor(Math.random() * 2147483647),
+  } = options;
+
+  console.log('Generating parallax background set:', {
+    description,
+    theme,
+    layers,
+    width,
+    height,
+  });
+
+  const result: ParallaxBackgroundResult = {
+    layers: {},
+    seed,
+    theme,
+  };
+
+  // Generate each requested layer
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
+    console.log(`Generating ${layer} layer (${i + 1}/${layers.length})...`);
+
+    try {
+      const layerResult = await generateGameBackground(description, {
+        theme,
+        layer,
+        palette,
+        width,
+        height,
+        seed: seed + i, // Consistent seed variation per layer
+        seamless: true,
+      });
+
+      result.layers[layer] = layerResult.imageUrl;
+      console.log(`${layer} layer generated successfully`);
+    } catch (error) {
+      console.error(`Failed to generate ${layer} layer:`, error);
+      // Continue with other layers
+    }
+  }
+
+  return result;
+}
