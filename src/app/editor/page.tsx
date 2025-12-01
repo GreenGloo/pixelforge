@@ -16,6 +16,7 @@ import {
   StyleMatchPanel,
   SpriteRotationPanel,
   TilesetPanel,
+  CharacterCreatorPanel,
 } from '@/components/canvas';
 import { useCanvasStore } from '@/lib/canvas/useCanvasStore';
 import { Button } from '@/components/ui/button';
@@ -255,6 +256,7 @@ export default function EditorPage() {
         {/* Right panels */}
         <div className="w-72 flex flex-col border-l border-[#2a2a4e] overflow-y-auto">
           <AIGeneratePanel />
+          <CharacterCreatorPanel />
           <AIAnimatePanel />
           <InpaintPanel />
           <StyleMatchPanel />

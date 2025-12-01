@@ -10,3 +10,4 @@ export { InpaintPanel } from './InpaintPanel';
 export { StyleMatchPanel } from './StyleMatchPanel';
 export { SpriteRotationPanel } from './SpriteRotationPanel';
 export { TilesetPanel } from './TilesetPanel';
+export { CharacterCreatorPanel } from './CharacterCreatorPanel';

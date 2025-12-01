@@ -223,13 +223,13 @@ export function SkeletonPanel() {
       // Generate pose descriptions from current animation keyframes
       const poseDescriptions = currentAnimation.keyframes.map((kf, i) => {
         // Use describePose if available, otherwise create a basic description
-        const poseDesc = describePose ? describePose(kf.transforms, bones) : `pose frame ${i + 1}`;
+        const poseDesc = describePose ? describePose(bones, kf.boneTransforms) : `pose frame ${i + 1}`;
         return poseDesc;
       });
 
       // If no keyframes, use current pose
       if (poseDescriptions.length === 0) {
-        const currentDesc = describePose ? describePose(currentTransforms, bones) : 'standing pose';
+        const currentDesc = describePose ? describePose(bones, currentTransforms) : 'standing pose';
         poseDescriptions.push(currentDesc);
       }
 
@@ -603,7 +603,7 @@ export function SkeletonPanel() {
                           title={`Keyframe at ${kf.time}ms`}
                           onClick={() => {
                             setAnimationTime(kf.time);
-                            setCurrentTransforms(kf.transforms);
+                            setCurrentTransforms(kf.boneTransforms);
                           }}
                         />
                       ))}
