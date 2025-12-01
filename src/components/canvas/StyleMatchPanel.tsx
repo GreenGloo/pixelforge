@@ -93,7 +93,8 @@ export function StyleMatchPanel() {
     setPreviewUrl(null);
   };
 
-  const creditCost = referenceImage ? 3 : 1;
+  // Credit cost: 2 with reference image, 1 without (matches API)
+  const creditCost = referenceImage ? 2 : 1;
 
   return (
     <div className="bg-[#1a1a2e] border-b border-[#2a2a4e]">

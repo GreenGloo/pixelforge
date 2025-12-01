@@ -648,14 +648,44 @@ export function PixelCanvas() {
     setMoveOffset(null);
   }, [tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
 
-  // Handle mouse leave
+  // Handle mouse leave - don't stop drawing for continuous tools
   const handleMouseLeave = useCallback(() => {
-    setIsDrawing(false);
+    // For shape tools, reset the preview but keep drawing state
+    // For continuous tools (pencil, eraser, mask), keep drawing state
+    // so user can continue when mouse re-enters
+    if (['line', 'rectangle', 'ellipse', 'select'].includes(tool)) {
+      setShapeStart(null);
+      setShapeEnd(null);
+      setIsDrawing(false);
+    }
+    if (tool === 'move') {
+      setMoveOffset(null);
+      setIsDrawing(false);
+    }
+    // For pencil, eraser, mask - keep isDrawing true, just clear lastPos
+    // so the next stroke starts fresh when mouse re-enters
     setLastPos(null);
-    setShapeStart(null);
-    setShapeEnd(null);
-    setMoveOffset(null);
-  }, []);
+  }, [tool]);
+
+  // Global mouseup listener to stop drawing when mouse released outside canvas
+  useEffect(() => {
+    if (!isDrawing) return;
+
+    const handleGlobalMouseUp = () => {
+      // Commit history for drawing tools
+      if (['pencil', 'eraser', 'bucket', 'line', 'rectangle', 'ellipse', 'mask'].includes(tool)) {
+        commitHistory();
+      }
+      setIsDrawing(false);
+      setLastPos(null);
+      setShapeStart(null);
+      setShapeEnd(null);
+      setMoveOffset(null);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isDrawing, tool, commitHistory]);
 
   // Prevent context menu
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
