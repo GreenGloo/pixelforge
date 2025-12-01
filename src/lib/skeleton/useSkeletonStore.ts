@@ -18,6 +18,7 @@ import {
   HUMANOID_SKELETON,
   BONE_COLORS,
 } from './types';
+import { AnimationTemplateType, loadAnimationTemplate, ANIMATION_TEMPLATES } from './animationTemplates';
 
 interface SkeletonStore extends SkeletonState {
   // Bone actions
@@ -50,6 +51,10 @@ interface SkeletonStore extends SkeletonState {
   setAnimationDuration: (animationId: string, duration: number) => void;
   setAnimationLoop: (animationId: string, loop: boolean) => void;
 
+  // Animation templates
+  loadAnimationTemplate: (templateType: AnimationTemplateType) => void;
+  getAvailableTemplates: () => AnimationTemplateType[];
+
   // Playback
   setIsAnimating: (isAnimating: boolean) => void;
   toggleShowBones: () => void;
@@ -57,6 +62,9 @@ interface SkeletonStore extends SkeletonState {
   // Import/Export
   exportSkeleton: () => string;
   importSkeleton: (json: string) => void;
+
+  // Helpers
+  getBoneNameToIdMap: () => Map<string, string>;
 
   // Reset
   reset: () => void;
@@ -275,6 +283,37 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   // Playback
   setIsAnimating: (isAnimating) => set({ isAnimating }),
   toggleShowBones: () => set({ showBones: !get().showBones }),
+
+  // Animation templates
+  loadAnimationTemplate: (templateType) => {
+    const bones = get().bones;
+    if (bones.length === 0) {
+      console.warn('No bones loaded. Load a skeleton first.');
+      return;
+    }
+
+    // Build name-to-id map
+    const boneNameToIdMap = new Map(bones.map(b => [b.name, b.id]));
+
+    // Load the template with proper bone IDs
+    const animation = loadAnimationTemplate(templateType, boneNameToIdMap);
+
+    // Add to animations
+    set({
+      animations: [...get().animations, animation],
+      currentAnimationId: animation.id,
+    });
+  },
+
+  getAvailableTemplates: () => {
+    return Object.keys(ANIMATION_TEMPLATES) as AnimationTemplateType[];
+  },
+
+  // Helpers
+  getBoneNameToIdMap: () => {
+    const bones = get().bones;
+    return new Map(bones.map(b => [b.name, b.id]));
+  },
 
   // Import/Export
   exportSkeleton: () => {

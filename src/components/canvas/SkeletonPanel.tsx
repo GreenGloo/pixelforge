@@ -56,6 +56,7 @@ export function SkeletonPanel() {
     addKeyframe,
     setIsAnimating,
     exportSkeleton,
+    loadAnimationTemplate,
     reset,
   } = useSkeletonStore();
 
@@ -351,6 +352,27 @@ export function SkeletonPanel() {
               Animations ({animations.length})
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-2 space-y-2">
+              {/* Animation templates */}
+              {bones.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-xs text-gray-500">Load Template:</span>
+                  <div className="flex gap-1 flex-wrap">
+                    {['idle', 'walk', 'run', 'attack', 'jump'].map((template) => (
+                      <Button
+                        key={template}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs capitalize bg-purple-900/20 border-purple-500/30 hover:bg-purple-900/40"
+                        onClick={() => loadAnimationTemplate(template as 'idle' | 'walk' | 'run' | 'attack' | 'jump')}
+                      >
+                        {template}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Existing animations */}
               <div className="flex gap-1 flex-wrap">
                 {animations.map(anim => (
                   <Button

@@ -984,3 +984,204 @@ export async function generateParallaxBackground(
 
   return result;
 }
+
+// ==========================================
+// Skeleton-Guided Animation Generation
+// Uses skeleton pose images to guide AI generation
+// ==========================================
+
+export interface SkeletonAnimationOptions {
+  seed?: number;
+  width?: number;
+  height?: number;
+  poseStrength?: number; // How closely to follow the pose (0.4-0.8 recommended)
+}
+
+export interface SkeletonAnimationResult {
+  frames: string[];
+  seed: number;
+}
+
+/**
+ * Generate a character frame guided by a skeleton pose image
+ *
+ * This function takes a character reference and a pose silhouette,
+ * then generates the character in that pose using img2img.
+ *
+ * @param characterPrompt - Description of the character
+ * @param poseDescription - Text description of the pose (e.g., "walking, left foot forward")
+ * @param poseImage - Base64 encoded skeleton pose silhouette (optional, for img2img guidance)
+ * @param referenceImage - Base64 encoded reference character image (optional)
+ * @param options - Generation options
+ */
+export async function generateSkeletonGuidedFrame(
+  characterPrompt: string,
+  poseDescription: string,
+  poseImage?: string,
+  referenceImage?: string,
+  options: SkeletonAnimationOptions = {}
+): Promise<string> {
+  const {
+    seed = Math.floor(Math.random() * 2147483647),
+    width = 64,
+    height = 64,
+    poseStrength = 0.6,
+  } = options;
+
+  // Build the full prompt with character and pose
+  const fullPrompt = `${characterPrompt}, ${poseDescription}, pixel art game sprite, full body visible, centered, clean edges`;
+
+  console.log('Generating skeleton-guided frame:', {
+    characterPrompt,
+    poseDescription,
+    hasReferenceImage: !!referenceImage,
+    hasPoseImage: !!poseImage,
+    seed,
+  });
+
+  // If we have a reference image, use it for better character consistency
+  // If we have a pose image, use it to guide the pose
+  const inputImage = referenceImage || poseImage;
+  const strength = referenceImage ? poseStrength : 0.7;
+
+  const imageUrl = await generateWithRetroDiffusion({
+    prompt: fullPrompt,
+    style: 'default',
+    width,
+    height,
+    seed,
+    removeBackground: true,
+    inputImage,
+    strength: inputImage ? strength : undefined,
+  });
+
+  return imageUrl;
+}
+
+/**
+ * Generate a complete animation sequence using skeleton poses
+ *
+ * This generates each frame of an animation by providing skeleton pose
+ * guidance and maintaining character consistency through img2img.
+ *
+ * @param characterPrompt - Description of the character
+ * @param poseDescriptions - Array of pose descriptions for each frame
+ * @param poseImages - Array of base64 skeleton pose images (optional)
+ * @param options - Generation options
+ */
+export async function generateSkeletonAnimation(
+  characterPrompt: string,
+  poseDescriptions: string[],
+  poseImages?: string[],
+  options: SkeletonAnimationOptions = {}
+): Promise<SkeletonAnimationResult> {
+  const {
+    seed = Math.floor(Math.random() * 2147483647),
+    width = 64,
+    height = 64,
+    poseStrength = 0.55,
+  } = options;
+
+  console.log('Generating skeleton animation:', {
+    characterPrompt,
+    frameCount: poseDescriptions.length,
+    hasPoseImages: !!poseImages,
+    seed,
+  });
+
+  const frames: string[] = [];
+  let referenceImage: string | null = null;
+
+  // Generate each frame
+  for (let i = 0; i < poseDescriptions.length; i++) {
+    console.log(`Generating skeleton frame ${i + 1}/${poseDescriptions.length}...`);
+
+    const poseDescription = poseDescriptions[i];
+    const poseImage = poseImages?.[i];
+
+    // For first frame, generate from scratch (or with pose only)
+    // For subsequent frames, use first frame as reference for consistency
+    const frameUrl = await generateSkeletonGuidedFrame(
+      characterPrompt,
+      poseDescription,
+      poseImage,
+      referenceImage || undefined,
+      {
+        seed,
+        width,
+        height,
+        poseStrength,
+      }
+    );
+
+    frames.push(frameUrl);
+
+    // After first frame, fetch it for use as reference
+    if (i === 0 && !referenceImage) {
+      try {
+        const response = await fetch(frameUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        referenceImage = Buffer.from(arrayBuffer).toString('base64');
+        console.log('Base frame captured for consistency');
+      } catch (error) {
+        console.error('Failed to capture base frame:', error);
+      }
+    }
+  }
+
+  return {
+    frames,
+    seed,
+  };
+}
+
+/**
+ * Pose description templates for common animations
+ * These can be used with generateSkeletonAnimation
+ */
+export const POSE_DESCRIPTIONS = {
+  walk: [
+    'walking pose, right foot forward, left arm forward, mid-stride',
+    'walking pose, feet together, passing position, arms at sides',
+    'walking pose, left foot forward, right arm forward, mid-stride',
+    'walking pose, feet together, passing position, arms at sides',
+  ],
+  run: [
+    'running pose, pushing off, right leg back, left arm forward',
+    'running pose, airborne, legs tucked, arms pumping',
+    'running pose, landing, left leg forward, right arm forward',
+    'running pose, airborne, legs tucked, arms pumping',
+  ],
+  idle: [
+    'standing idle, neutral pose, arms relaxed at sides',
+    'standing idle, slight breathing motion, subtle movement',
+    'standing idle, relaxed stance, gentle sway',
+    'standing idle, returning to neutral pose',
+  ],
+  attack: [
+    'attack windup, arm pulled back, preparing to strike',
+    'attack peak, weapon raised high, tension pose',
+    'attack swing, striking forward, arm extended',
+    'attack follow through, recovery stance',
+  ],
+  jump: [
+    'jump crouch, knees bent, preparing to leap',
+    'jump ascent, body stretched upward, arms up',
+    'jump peak, at highest point, legs tucked',
+    'jump descent, preparing to land, arms out for balance',
+  ],
+} as const;
+
+export type PoseAnimationType = keyof typeof POSE_DESCRIPTIONS;
+
+/**
+ * Convenience function to generate animation using preset pose descriptions
+ */
+export async function generatePresetAnimation(
+  characterPrompt: string,
+  animationType: PoseAnimationType,
+  options: SkeletonAnimationOptions = {}
+): Promise<SkeletonAnimationResult> {
+  const poseDescriptions = POSE_DESCRIPTIONS[animationType];
+  return generateSkeletonAnimation(characterPrompt, [...poseDescriptions], undefined, options);
+}
