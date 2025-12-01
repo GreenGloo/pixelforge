@@ -49,34 +49,44 @@ export function AIAnimatePanel() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<NodeJS.Timeout | null>(null);
-  const spriteImageRef = useRef<HTMLImageElement | null>(null);
 
   // Cost: 4 credits for 4 animation frames
   const cost = 4;
 
-  // Load sprite sheet image
-  useEffect(() => {
-    if (spriteSheetUrl) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        spriteImageRef.current = img;
-        setCurrentFrameIndex(0);
-        drawFrame(0, img);
-      };
-      img.src = spriteSheetUrl;
-    }
-  }, [spriteSheetUrl, frameCount]);
+  // Store individual frame URLs
+  const [frameUrls, setFrameUrls] = useState<string[]>([]);
+  const [frameImages, setFrameImages] = useState<HTMLImageElement[]>([]);
 
-  // Animation playback
+  // Load individual frame images
   useEffect(() => {
-    if (isPlaying && frameCount > 0 && spriteImageRef.current) {
+    if (frameUrls.length > 0) {
+      const images: HTMLImageElement[] = [];
+      let loadedCount = 0;
+
+      frameUrls.forEach((url, index) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          images[index] = img;
+          loadedCount++;
+          if (loadedCount === frameUrls.length) {
+            setFrameImages(images);
+            setCurrentFrameIndex(0);
+            drawFrameFromImages(0, images);
+          }
+        };
+        img.src = url;
+      });
+    }
+  }, [frameUrls]);
+
+  // Animation playback with individual frames
+  useEffect(() => {
+    if (isPlaying && frameImages.length > 0) {
       animationRef.current = setInterval(() => {
         setCurrentFrameIndex((prev) => {
-          const next = (prev + 1) % frameCount;
-          if (spriteImageRef.current) {
-            drawFrame(next, spriteImageRef.current);
-          }
+          const next = (prev + 1) % frameImages.length;
+          drawFrameFromImages(next, frameImages);
           return next;
         });
       }, 1000 / fps);
@@ -89,32 +99,24 @@ export function AIAnimatePanel() {
         clearInterval(animationRef.current);
       }
     };
-  }, [isPlaying, frameCount, fps]);
+  }, [isPlaying, frameImages, fps]);
 
-  // Draw a single frame from the sprite sheet
-  const drawFrame = useCallback((frameIndex: number, img: HTMLImageElement) => {
+  // Draw a single frame from individual images
+  const drawFrameFromImages = useCallback((frameIndex: number, images: HTMLImageElement[]) => {
     const canvas = canvasRef.current;
-    if (!canvas || !img || frameCount === 0) return;
+    if (!canvas || images.length === 0 || !images[frameIndex]) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const frameWidth = img.width / frameCount;
-    const frameHeight = img.height;
+    const img = images[frameIndex];
+    canvas.width = img.width;
+    canvas.height = img.height;
 
-    // Set canvas size to match frame
-    canvas.width = frameWidth;
-    canvas.height = frameHeight;
-
-    // Clear and draw the specific frame
-    ctx.clearRect(0, 0, frameWidth, frameHeight);
-    ctx.imageSmoothingEnabled = false; // Keep pixels crisp
-    ctx.drawImage(
-      img,
-      frameIndex * frameWidth, 0, frameWidth, frameHeight,
-      0, 0, frameWidth, frameHeight
-    );
-  }, [frameCount]);
+    ctx.clearRect(0, 0, img.width, img.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0);
+  }, []);
 
   const handleGenerate = async () => {
     if (!session?.user) {
@@ -130,6 +132,8 @@ export function AIAnimatePanel() {
     setIsGenerating(true);
     setSpriteSheetUrl(null);
     setFrameCount(0);
+    setFrameUrls([]);
+    setFrameImages([]);
     setCurrentFrameIndex(0);
     setIsPlaying(false);
 
@@ -156,9 +160,18 @@ export function AIAnimatePanel() {
         return;
       }
 
-      toast.success(`Sprite sheet generated! Used ${data.creditsUsed} credits`);
-      setSpriteSheetUrl(data.spriteSheetUrl);
-      setFrameCount(data.frameCount);
+      toast.success(`Animation generated! Used ${data.creditsUsed} credits`);
+
+      // Handle individual frames from the API
+      if (data.frames && data.frames.length > 0) {
+        setFrameUrls(data.frames);
+        setFrameCount(data.frames.length);
+      } else if (data.spriteSheetUrl) {
+        // Fallback for sprite sheet format
+        setSpriteSheetUrl(data.spriteSheetUrl);
+        setFrameCount(data.frameCount);
+      }
+
       setIsPlaying(true);
 
     } catch (error) {
@@ -169,21 +182,53 @@ export function AIAnimatePanel() {
     }
   };
 
-  const handleDownload = useCallback(() => {
-    if (!spriteSheetUrl) return;
+  const handleDownload = useCallback(async () => {
+    // If we have individual frame images, create a sprite sheet
+    if (frameImages.length > 0) {
+      const firstFrame = frameImages[0];
+      const canvas = document.createElement('canvas');
+      canvas.width = firstFrame.width * frameImages.length;
+      canvas.height = firstFrame.height;
+      const ctx = canvas.getContext('2d');
 
-    const link = document.createElement('a');
-    link.download = `sprite-sheet-${motionType}-${frameCount}frames.png`;
-    link.href = spriteSheetUrl;
-    link.click();
-    toast.success('Sprite sheet downloaded!');
-  }, [spriteSheetUrl, motionType, frameCount]);
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false;
+        frameImages.forEach((img, i) => {
+          ctx.drawImage(img, i * firstFrame.width, 0);
+        });
+
+        const link = document.createElement('a');
+        link.download = `sprite-sheet-${motionType}-${frameImages.length}frames.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        toast.success('Sprite sheet downloaded!');
+      }
+      return;
+    }
+
+    // Fallback: download sprite sheet URL as blob
+    if (spriteSheetUrl) {
+      try {
+        const response = await fetch(spriteSheetUrl);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `sprite-sheet-${motionType}-${frameCount}frames.png`;
+        link.href = blobUrl;
+        link.click();
+        URL.revokeObjectURL(blobUrl);
+        toast.success('Sprite sheet downloaded!');
+      } catch {
+        toast.error('Failed to download sprite sheet');
+      }
+    }
+  }, [frameImages, spriteSheetUrl, motionType, frameCount]);
 
   const selectFrame = (index: number) => {
     setCurrentFrameIndex(index);
     setIsPlaying(false);
-    if (spriteImageRef.current) {
-      drawFrame(index, spriteImageRef.current);
+    if (frameImages.length > 0) {
+      drawFrameFromImages(index, frameImages);
     }
   };
 
@@ -276,7 +321,7 @@ export function AIAnimatePanel() {
         </div>
 
         {/* Animation Preview */}
-        {spriteSheetUrl && (
+        {(frameImages.length > 0 || spriteSheetUrl) && (
           <div className="space-y-3">
             <label className="text-xs text-gray-400 block">Preview</label>
 
@@ -318,7 +363,7 @@ export function AIAnimatePanel() {
 
             {/* Frame indicators */}
             <div className="flex gap-1">
-              {Array.from({ length: frameCount }).map((_, index) => (
+              {Array.from({ length: frameImages.length || frameCount }).map((_, index) => (
                 <button
                   key={index}
                   onClick={() => selectFrame(index)}
@@ -331,18 +376,24 @@ export function AIAnimatePanel() {
               ))}
             </div>
 
-            {/* Full sprite sheet preview */}
-            <div className="space-y-1">
-              <label className="text-xs text-gray-400 block">Sprite Sheet</label>
-              <div className="bg-[#0f0f1a] rounded p-2 overflow-x-auto">
-                <img
-                  src={spriteSheetUrl}
-                  alt="Sprite sheet"
-                  className="h-24 w-auto"
-                  style={{ imageRendering: 'pixelated' }}
-                />
+            {/* Individual frames preview */}
+            {frameUrls.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs text-gray-400 block">Animation Frames</label>
+                <div className="bg-[#0f0f1a] rounded p-2 flex gap-1 overflow-x-auto">
+                  {frameUrls.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt={`Frame ${i + 1}`}
+                      className="h-16 w-auto cursor-pointer hover:ring-2 hover:ring-purple-500"
+                      style={{ imageRendering: 'pixelated' }}
+                      onClick={() => selectFrame(i)}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Download button */}
             <Button
