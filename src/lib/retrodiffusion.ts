@@ -455,9 +455,17 @@ async function generateWithRetroDiffusion(params: {
   return toImageUrl(output);
 }
 
+export interface SpriteSheetResult {
+  spriteSheetUrl: string;
+  spriteWidth: number;
+  spriteHeight: number;
+  columns: number;  // Number of sprites horizontally
+}
+
 /**
  * Generate a character turnaround using Retro Diffusion's character_turnaround style
  * This generates a sprite sheet with all 4 rotations in one image
+ * The sprite sheet is split client-side for consistency across all rotations
  */
 export async function generateCharacterTurnaround(
   sourceImage: string,
@@ -466,8 +474,8 @@ export async function generateCharacterTurnaround(
     width?: number;
     height?: number;
   }
-): Promise<SpriteRotationResult> {
-  const description = options?.characterDescription || 'character sprite';
+): Promise<SpriteSheetResult> {
+  const description = options?.characterDescription || 'pixel art character sprite';
   const spriteWidth = options?.width || 64;
   const spriteHeight = options?.height || 64;
 
@@ -475,74 +483,29 @@ export async function generateCharacterTurnaround(
   console.log('Source image provided:', sourceImage ? 'Yes' : 'No');
   console.log('Character description:', description);
 
-  // First, generate the turnaround sprite sheet
-  // The character_turnaround style creates all 4 views
-  let turnaroundUrl: string;
-  try {
-    turnaroundUrl = await generateWithRetroDiffusion({
-      prompt: description,
-      style: 'character_turnaround',
-      // Output will be wider to contain all 4 sprites
-      width: spriteWidth * 4,  // 4 sprites side by side
-      height: spriteHeight,
-      inputImage: sourceImage,
-      strength: 0.75,  // Balance between reference and rotation
-      removeBackground: true,
-    });
-    console.log('Generated turnaround sprite sheet:', turnaroundUrl?.substring?.(0, 100) || turnaroundUrl);
-  } catch (error) {
-    console.error('Failed to generate turnaround sheet:', error);
-    turnaroundUrl = '';
-  }
+  // Build a detailed prompt that includes the character description
+  const turnaroundPrompt = `${description}, character turnaround sheet, front view, side view, back view, pixel art game sprite, full body visible, consistent style, same character from different angles`;
 
-  // The turnaround typically outputs: front, right, back, left in one image
-  // For now, we'll generate each view separately for better quality
-  // since the sprite sheet would need to be split client-side
+  // Generate the turnaround sprite sheet using character_turnaround style
+  // This creates all 4 views in one consistent image
+  const turnaroundUrl = await generateWithRetroDiffusion({
+    prompt: turnaroundPrompt,
+    style: 'character_turnaround',
+    // Output will be wider to contain all 4 sprites
+    width: spriteWidth * 4,  // 4 sprites side by side
+    height: spriteHeight,
+    inputImage: sourceImage,
+    strength: 0.8,  // Higher strength to better maintain reference character
+    removeBackground: true,
+  });
 
-  // Generate individual rotations with the source as reference
-  const frontUrl = sourceImage.startsWith('data:')
-    ? sourceImage
-    : `data:image/png;base64,${extractBase64(sourceImage)}`;
-
-  const directions = [
-    { name: 'right', prompt: `${description}, right side view, profile facing right` },
-    { name: 'back', prompt: `${description}, back view, facing away from camera` },
-    { name: 'left', prompt: `${description}, left side view, profile facing left` },
-  ];
-
-  const results: Record<string, string> = {
-    front: frontUrl,  // Use original as front
-  };
-
-  // Generate other rotations
-  for (const dir of directions) {
-    console.log(`Generating ${dir.name} view...`);
-
-    try {
-      const imageUrl = await generateWithRetroDiffusion({
-        prompt: dir.prompt,
-        style: 'default',  // Use default style for individual sprites
-        width: spriteWidth,
-        height: spriteHeight,
-        inputImage: sourceImage,
-        strength: 0.7,
-        removeBackground: true,
-      });
-
-      results[dir.name] = imageUrl;
-      console.log(`${dir.name} view generated: ${typeof imageUrl === 'string' ? imageUrl.substring(0, 50) : imageUrl}...`);
-    } catch (error) {
-      console.error(`Failed to generate ${dir.name} view:`, error);
-      // Fallback: use the source image
-      results[dir.name] = frontUrl;
-    }
-  }
+  console.log('Generated turnaround sprite sheet:', turnaroundUrl?.substring?.(0, 100) || turnaroundUrl);
 
   return {
-    frontUrl: results.front,
-    rightUrl: results.right,
-    backUrl: results.back,
-    leftUrl: results.left,
+    spriteSheetUrl: turnaroundUrl,
+    spriteWidth,
+    spriteHeight,
+    columns: 4,  // 4 sprites: front, right, back, left
   };
 }
 

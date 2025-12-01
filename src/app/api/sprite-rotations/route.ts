@@ -2,7 +2,7 @@
 // Sprite Rotations API - Using Retro Diffusion
 // Generates TRUE pixel art rotations from a source sprite
 // Uses Retro Diffusion's character_turnaround style for authentic pixel art
-// This is OUR solution - NOT using PixelLab
+// Returns a sprite sheet that is split client-side for consistency
 // ==========================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -46,8 +46,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check user credits (3 credits for 3 rotations - front is original)
-    const creditCost = 3;
+    // Check user credits (1 credit for sprite sheet generation)
+    const creditCost = 1;
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { credits: true },
@@ -66,19 +66,12 @@ export async function POST(req: NextRequest) {
     console.log('Character description:', characterDescription);
 
     // Use Retro Diffusion for authentic pixel art rotations
+    // Returns a sprite sheet with all 4 rotations in one consistent image
     const result = await generateCharacterTurnaround(sourceImageUrl, {
       characterDescription,
       width,
       height,
     });
-
-    // Format results for frontend
-    const rotations = [
-      { direction: 'front', imageUrl: result.frontUrl },
-      { direction: 'right', imageUrl: result.rightUrl },
-      { direction: 'back', imageUrl: result.backUrl },
-      { direction: 'left', imageUrl: result.leftUrl },
-    ];
 
     // Deduct credits
     await prisma.user.update({
@@ -92,22 +85,30 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         prompt: characterDescription || 'sprite rotation',
         style: 'ROTATION',
-        width: width,
+        width: width * 4,  // Sprite sheet is 4x wide
         height: height,
         status: 'COMPLETED',
-        imageUrl: result.frontUrl,  // Use front as primary
+        imageUrl: result.spriteSheetUrl,
         cost: creditCost,
         metadata: JSON.stringify({
           type: 'sprite_rotation',
-          method: 'retro_diffusion',
-          rotations: rotations.map(r => ({ direction: r.direction })),
+          method: 'retro_diffusion_turnaround',
+          spriteWidth: result.spriteWidth,
+          spriteHeight: result.spriteHeight,
+          columns: result.columns,
         }),
       },
     });
 
     return NextResponse.json({
       success: true,
-      rotations,
+      spriteSheet: {
+        url: result.spriteSheetUrl,
+        spriteWidth: result.spriteWidth,
+        spriteHeight: result.spriteHeight,
+        columns: result.columns,
+        directions: ['front', 'right', 'back', 'left'],
+      },
       creditsUsed: creditCost,
       creditsRemaining: user.credits - creditCost,
     });
