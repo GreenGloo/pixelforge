@@ -14,9 +14,9 @@ import {
   isRetroDiffusionConfigured,
 } from '@/lib/retrodiffusion';
 
-// Credit cost: 2 credits for sprite sheet
+// Credit cost: 4 credits for animation (4 individual frames)
 function calculateCreditCost(): number {
-  return 2;
+  return 4;
 }
 
 export async function POST(request: Request) {
@@ -84,11 +84,24 @@ export async function POST(request: Request) {
     let frameCount = 4;
     let directions = 1;
 
-    // Use rd-animation for walking (gives 4 directions x 4 frames sprite sheet)
+    // Generate walk animation with user's actual prompt using rd-plus
     if (motionType === 'walk') {
-      const walkResult = await generateWalkingAnimation(prompt);
+      // Map direction values to the function's expected format
+      const directionMap: Record<string, 'front' | 'right' | 'back' | 'left'> = {
+        down: 'front',
+        right: 'right',
+        up: 'back',
+        left: 'left',
+      };
+      const walkDirection = directionMap[direction] || 'right';
+
+      const walkResult = await generateWalkingAnimation(prompt, {
+        direction: walkDirection,
+        frameCount: Math.min(numFrames, 4),
+      });
       result = {
         spriteSheetUrl: walkResult.spriteSheetUrl,
+        frames: walkResult.frames,
         seed: walkResult.seed,
       };
       frameCount = walkResult.frameCount;

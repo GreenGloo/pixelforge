@@ -618,57 +618,81 @@ export type AnimationStyle =
 
 export interface AnimationResult {
   spriteSheetUrl: string;
+  frames?: string[];  // Individual frame URLs
   frameCount: number;
   directions: number;
   seed: number;
 }
 
 /**
- * Generate a walking animation sprite sheet using rd-animation model
- * Returns a sprite sheet with 4 directions (front, right, back, left) x 4 frames
+ * Generate a walking animation using rd-plus with the user's actual prompt
+ *
+ * NOTE: rd-animation model ignores custom prompts and produces generic characters.
+ * We use rd-plus instead to generate individual walk frames that respect the prompt.
  */
 export async function generateWalkingAnimation(
   prompt: string,
   options?: {
     seed?: number;
-    style?: AnimationStyle;
+    direction?: 'front' | 'right' | 'back' | 'left';
+    frameCount?: number;
   }
 ): Promise<AnimationResult> {
-  const replicate = getReplicateClient();
-  if (!replicate) {
-    throw new Error('Replicate API not configured. Set REPLICATE_API_TOKEN.');
-  }
-
-  const style = options?.style || 'animation__four_angle_walking';
   const seed = options?.seed || Math.floor(Math.random() * 2147483647);
+  const direction = options?.direction || 'right';
+  const frameCount = options?.frameCount || 4;
 
-  // rd-animation is locked to 48x48 for walking animations
-  const input: Record<string, unknown> = {
-    prompt: `${prompt}, pixel art game sprite`,
-    prompt_style: style,
-    width: 48,
-    height: 48,
-    seed,
-    return_spritesheet: true,
-  };
-
-  console.log('Generating walking animation with rd-animation:', {
+  console.log('Generating walking animation with rd-plus:', {
     prompt,
-    style,
+    direction,
+    frameCount,
     seed,
   });
 
-  const output = await replicate.run(
-    'retro-diffusion/rd-animation' as `${string}/${string}`,
-    { input }
-  );
+  // Direction view descriptions
+  const directionViews: Record<string, string> = {
+    front: 'front view, facing camera',
+    right: 'side view, profile facing right',
+    back: 'back view, facing away',
+    left: 'side view, profile facing left',
+  };
 
-  const spriteSheetUrl = toImageUrl(output);
+  // Walk cycle frame descriptions
+  const walkFrames = [
+    'walking pose frame 1, left foot forward, mid-stride',
+    'walking pose frame 2, feet together, passing position',
+    'walking pose frame 3, right foot forward, mid-stride',
+    'walking pose frame 4, feet together, passing position',
+  ];
 
+  const frames: string[] = [];
+  const directionView = directionViews[direction] || directionViews.right;
+
+  // Generate each frame
+  for (let i = 0; i < Math.min(frameCount, walkFrames.length); i++) {
+    console.log(`Generating walk frame ${i + 1}/${frameCount}...`);
+
+    const framePrompt = `${prompt}, ${directionView}, ${walkFrames[i]}, pixel art game sprite, full body visible, centered`;
+
+    const imageUrl = await generateWithRetroDiffusion({
+      prompt: framePrompt,
+      style: 'default',
+      width: 64,
+      height: 64,
+      seed: seed + i,
+      removeBackground: true,
+    });
+
+    frames.push(imageUrl);
+  }
+
+  // Create a horizontal sprite sheet from the frames
+  // For now, return the first frame as spriteSheetUrl and include all frames
   return {
-    spriteSheetUrl,
-    frameCount: 4,  // rd-animation produces 4 frames per direction
-    directions: 4,   // 4 directions (front, right, back, left)
+    spriteSheetUrl: frames[0],  // First frame as preview
+    frames,  // All individual frames
+    frameCount: frames.length,
+    directions: 1,  // Single direction per generation
     seed,
   };
 }

@@ -51,8 +51,8 @@ export function AIAnimatePanel() {
   const animationRef = useRef<NodeJS.Timeout | null>(null);
   const spriteImageRef = useRef<HTMLImageElement | null>(null);
 
-  // Fixed cost: 2 credits per sprite sheet
-  const cost = 2;
+  // Cost: 4 credits for 4 animation frames
+  const cost = 4;
 
   // Load sprite sheet image
   useEffect(() => {
@@ -233,12 +233,11 @@ export function AIAnimatePanel() {
 
           <div>
             <label className="text-xs text-gray-400 mb-1 block">
-              {motionType === 'walk' ? 'Facing (All 4)' : 'Facing'}
+              Facing Direction
             </label>
             <Select
               value={direction}
               onValueChange={setDirection}
-              disabled={motionType === 'walk'}
             >
               <SelectTrigger className="h-8">
                 <SelectValue />
@@ -254,11 +253,9 @@ export function AIAnimatePanel() {
           </div>
         </div>
 
-        {motionType === 'walk' && (
-          <p className="text-xs text-purple-400">
-            Walk cycle generates all 4 directions in one sprite sheet
-          </p>
-        )}
+        <p className="text-xs text-purple-400">
+          Generates {numFrames} animation frames for your character
+        </p>
 
         {/* Frame count */}
         <div>
