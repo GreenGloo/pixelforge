@@ -1,16 +1,13 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useCanvasStore } from '@/lib/canvas/useCanvasStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   RotateCw,
-  Upload,
-  X,
   Loader2,
-  Image as ImageIcon,
   Grid,
 } from 'lucide-react';
 
@@ -82,61 +79,14 @@ export function SpriteRotationPanel() {
   const { data: session } = useSession();
   const { loadFromUrl } = useCanvasStore();
 
-  const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rotations, setRotations] = useState<Rotation[]>([]);
   const [spriteSheetUrl, setSpriteSheetUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 1 credit for sprite sheet generation (single API call)
   const creditCost = 1;
-
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setSourceImage(event.target?.result as string);
-      setRotations([]);
-    };
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handleUseCanvas = useCallback(() => {
-    // Get current canvas as image
-    const store = useCanvasStore.getState();
-    const frame = store.frames[store.currentFrameIndex];
-    if (!frame) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = store.width;
-    canvas.height = store.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Composite all layers
-    for (const layer of frame.layers) {
-      if (!layer.visible) continue;
-      const imageData = ctx.createImageData(store.width, store.height);
-      imageData.data.set(layer.pixels);
-      ctx.putImageData(imageData, 0, 0);
-    }
-
-    setSourceImage(canvas.toDataURL('image/png'));
-    setRotations([]);
-  }, []);
-
-  const handleRemoveSource = useCallback(() => {
-    setSourceImage(null);
-    setRotations([]);
-    setSpriteSheetUrl(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, []);
 
   const handleGenerate = async () => {
     if (!session?.user) {
@@ -144,8 +94,8 @@ export function SpriteRotationPanel() {
       return;
     }
 
-    if (!sourceImage) {
-      setError('Please upload or use canvas as source image');
+    if (!description.trim()) {
+      setError('Please enter a character description');
       return;
     }
 
@@ -159,7 +109,6 @@ export function SpriteRotationPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceImageUrl: sourceImage,
           characterDescription: description,
         }),
       });
@@ -243,71 +192,25 @@ export function SpriteRotationPanel() {
       </div>
 
       <div className="p-3 space-y-3">
-        {/* Source Image */}
-        <div>
-          <label className="text-xs text-gray-400 mb-1 block">
-            Source Sprite (front-facing)
-          </label>
-          {sourceImage ? (
-            <div className="relative">
-              <img
-                src={sourceImage}
-                alt="Source"
-                className="w-full h-20 object-contain bg-[#0f0f1a] rounded"
-                style={{ imageRendering: 'pixelated' }}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-1 right-1 w-6 h-6 bg-black/50"
-                onClick={handleRemoveSource}
-              >
-                <X className="w-3 h-3" />
-              </Button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 h-16 border-2 border-dashed border-[#2a2a4e] rounded hover:border-purple-500 transition-colors flex flex-col items-center justify-center gap-1"
-              >
-                <Upload className="w-4 h-4 text-gray-500" />
-                <span className="text-xs text-gray-500">Upload</span>
-              </button>
-              <button
-                onClick={handleUseCanvas}
-                className="flex-1 h-16 border-2 border-dashed border-[#2a2a4e] rounded hover:border-purple-500 transition-colors flex flex-col items-center justify-center gap-1"
-              >
-                <ImageIcon className="w-4 h-4 text-gray-500" />
-                <span className="text-xs text-gray-500">Use Canvas</span>
-              </button>
-            </div>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-        </div>
-
-        {/* Directions info */}
+        {/* Info */}
         <div className="text-xs text-gray-500 bg-[#0f0f1a] p-2 rounded">
-          Generates 4-way rotations: Front, Right, Back, Left
+          Generates consistent 4-way character rotations: Front, Right, Back, Left
         </div>
 
         {/* Description */}
         <div>
           <label className="text-xs text-gray-400 mb-1 block">
-            Character Description (optional)
+            Character Description <span className="text-red-400">*</span>
           </label>
           <Input
-            placeholder="e.g., knight, wizard, robot..."
+            placeholder="e.g., armored knight with sword, blue wizard with staff..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             className="h-8 text-sm"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Be detailed for best results
+          </p>
         </div>
 
         {/* Error */}
@@ -321,7 +224,7 @@ export function SpriteRotationPanel() {
         <Button
           className="w-full"
           onClick={handleGenerate}
-          disabled={isGenerating || !sourceImage}
+          disabled={isGenerating || !description.trim()}
         >
           {isGenerating ? (
             <>

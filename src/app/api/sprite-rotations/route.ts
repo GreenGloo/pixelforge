@@ -33,15 +33,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       characterDescription = '',
-      sourceImageUrl,  // Can be base64 data URL or HTTP URL
       width = 64,
       height = 64,
     } = body;
 
-    // Source image is REQUIRED - we need a sprite to rotate
-    if (!sourceImageUrl) {
+    // Character description is REQUIRED for text-only generation
+    if (!characterDescription.trim()) {
       return NextResponse.json(
-        { error: 'Source image is required for sprite rotation. Upload a sprite or use the canvas.' },
+        { error: 'Character description is required. Please describe your character.' },
         { status: 400 }
       );
     }
@@ -61,13 +60,11 @@ export async function POST(req: NextRequest) {
     }
 
     console.log('Starting sprite rotation generation with Retro Diffusion...');
-    console.log('Source image provided:', sourceImageUrl ? 'Yes' : 'No');
-    console.log('Source image type:', sourceImageUrl?.startsWith('data:') ? 'base64' : 'URL');
     console.log('Character description:', characterDescription);
 
     // Use Retro Diffusion for authentic pixel art rotations
-    // Returns a sprite sheet with all 4 rotations in one consistent image
-    const result = await generateCharacterTurnaround(sourceImageUrl, {
+    // Text-only generation with character_turnaround style for consistency
+    const result = await generateCharacterTurnaround(null, {
       characterDescription,
       width,
       height,

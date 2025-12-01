@@ -464,11 +464,16 @@ export interface SpriteSheetResult {
 
 /**
  * Generate a character turnaround using Retro Diffusion's character_turnaround style
- * This generates a sprite sheet with all 4 rotations in one image
- * The sprite sheet is split client-side for consistency across all rotations
+ *
+ * IMPORTANT: character_turnaround style works best with TEXT-ONLY generation.
+ * Using img2img with this style produces inconsistent results because the model
+ * doesn't understand that all 4 views should look like the input image.
+ *
+ * This function generates a sprite sheet with all 4 rotations from a text description.
+ * The user should provide a detailed character description for best results.
  */
 export async function generateCharacterTurnaround(
-  sourceImage: string,
+  sourceImage: string | null,
   options?: {
     characterDescription?: string;
     width?: number;
@@ -480,22 +485,22 @@ export async function generateCharacterTurnaround(
   const spriteHeight = options?.height || 64;
 
   console.log('Generating character turnaround with Retro Diffusion...');
-  console.log('Source image provided:', sourceImage ? 'Yes' : 'No');
   console.log('Character description:', description);
 
-  // Build a detailed prompt that includes the character description
-  const turnaroundPrompt = `${description}, character turnaround sheet, front view, side view, back view, pixel art game sprite, full body visible, consistent style, same character from different angles`;
+  // Build a detailed prompt for consistent character turnaround
+  // character_turnaround style produces 4 views: front, side, back, side (mirrored)
+  const turnaroundPrompt = `${description}, character sprite sheet, front view, right side view, back view, left side view, pixel art game sprite, full body visible, consistent character design, same outfit and colors from all angles`;
 
   // Generate the turnaround sprite sheet using character_turnaround style
-  // This creates all 4 views in one consistent image
+  // NOTE: We do NOT use inputImage because character_turnaround works best with text-only
+  // The style itself ensures consistency across all 4 views
   const turnaroundUrl = await generateWithRetroDiffusion({
     prompt: turnaroundPrompt,
     style: 'character_turnaround',
-    // Output will be wider to contain all 4 sprites
-    width: spriteWidth * 4,  // 4 sprites side by side
+    // Output will be wider to contain all 4 sprites (4x width)
+    width: spriteWidth * 4,
     height: spriteHeight,
-    inputImage: sourceImage,
-    strength: 0.8,  // Higher strength to better maintain reference character
+    // No inputImage - text-only generation for consistent results
     removeBackground: true,
   });
 
