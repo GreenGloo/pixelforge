@@ -10,7 +10,6 @@ import {
   Upload,
   X,
   Loader2,
-  Download,
   Image as ImageIcon,
   Grid,
 } from 'lucide-react';
@@ -22,15 +21,17 @@ interface Rotation {
 
 export function SpriteRotationPanel() {
   const { data: session } = useSession();
-  const { loadFromUrl, width, height } = useCanvasStore();
+  const { loadFromUrl } = useCanvasStore();
 
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  const [directions, setDirections] = useState<4 | 8>(4);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rotations, setRotations] = useState<Rotation[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fixed cost: 3 credits for 4-way rotation (front is original, 3 generated)
+  const creditCost = 3;
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,7 +98,6 @@ export function SpriteRotationPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceImageUrl: sourceImage,
-          directions,
           characterDescription: description,
         }),
       });
@@ -145,7 +145,7 @@ export function SpriteRotationPanel() {
           loaded++;
           if (loaded === rotations.length) {
             const link = document.createElement('a');
-            link.download = `sprite-rotations-${directions}dir.png`;
+            link.download = `sprite-rotations-4dir.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
           }
@@ -155,8 +155,6 @@ export function SpriteRotationPanel() {
     };
     img.src = rotations[0].imageUrl;
   };
-
-  const creditCost = directions;
 
   return (
     <div className="bg-[#1a1a2e] border-b border-[#2a2a4e]">
@@ -216,30 +214,9 @@ export function SpriteRotationPanel() {
           />
         </div>
 
-        {/* Direction count */}
-        <div>
-          <label className="text-xs text-gray-400 mb-1 block">Directions</label>
-          <div className="flex gap-2">
-            <Button
-              variant={directions === 4 ? 'default' : 'outline'}
-              size="sm"
-              className="flex-1 h-8"
-              onClick={() => setDirections(4)}
-            >
-              4-way
-            </Button>
-            <Button
-              variant={directions === 8 ? 'default' : 'outline'}
-              size="sm"
-              className="flex-1 h-8"
-              onClick={() => setDirections(8)}
-            >
-              8-way
-            </Button>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {directions === 4 ? 'Front, Right, Back, Left' : 'All 8 cardinal directions'}
-          </p>
+        {/* Directions info */}
+        <div className="text-xs text-gray-500 bg-[#0f0f1a] p-2 rounded">
+          Generates 4-way rotations: Front, Right, Back, Left
         </div>
 
         {/* Description */}
@@ -271,7 +248,7 @@ export function SpriteRotationPanel() {
           {isGenerating ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Generating {directions} views...
+              Generating 4 views...
             </>
           ) : (
             <>

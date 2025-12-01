@@ -20,8 +20,9 @@ import {
   Trash2,
   Download,
   Upload,
-  Plus,
   Wand2,
+  CircleDot,
+  SquareDashed,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -57,6 +58,10 @@ export function Toolbar() {
     swapColors,
     brushSize,
     setBrushSize,
+    brushShape,
+    setBrushShape,
+    shapeFilled,
+    setShapeFilled,
     zoom,
     setZoom,
     gridVisible,
@@ -198,6 +203,54 @@ export function Toolbar() {
             orientation="vertical"
           />
         </div>
+
+        {/* Brush Shape Toggle */}
+        <div className="flex flex-col items-center gap-1 mt-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn('w-8 h-8', brushShape === 'circle' && 'bg-purple-600/50')}
+                onClick={() => setBrushShape(brushShape === 'square' ? 'circle' : 'square')}
+              >
+                {brushShape === 'circle' ? (
+                  <CircleDot className="w-4 h-4" />
+                ) : (
+                  <SquareDashed className="w-4 h-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              Brush Shape: {brushShape === 'circle' ? 'Circle' : 'Square'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Shape Fill Toggle (only show for shape tools) */}
+        {(tool === 'rectangle' || tool === 'ellipse') && (
+          <div className="flex flex-col items-center gap-1 mt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn('w-8 h-8', shapeFilled && 'bg-purple-600/50')}
+                  onClick={() => setShapeFilled(!shapeFilled)}
+                >
+                  {shapeFilled ? (
+                    <Square className="w-4 h-4 fill-current" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {shapeFilled ? 'Filled Shape' : 'Outline Shape'}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
 
         <div className="border-t border-[#2a2a4e] my-2" />
 

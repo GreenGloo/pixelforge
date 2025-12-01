@@ -12,6 +12,8 @@ export function PixelCanvas() {
   // For shape tools - track start position
   const [shapeStart, setShapeStart] = useState<{ x: number; y: number } | null>(null);
   const [shapeEnd, setShapeEnd] = useState<{ x: number; y: number } | null>(null);
+  // For move tool - track drag offset
+  const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
 
   const {
     width,
@@ -22,6 +24,8 @@ export function PixelCanvas() {
     primaryColor,
     secondaryColor,
     brushSize,
+    brushShape,
+    shapeFilled,
     frames,
     currentFrameIndex,
     currentLayerIndex,
@@ -30,16 +34,20 @@ export function PixelCanvas() {
     showMask,
     maskTool,
     maskBrushSize,
-    setPixel,
+    selection,
     setPixels,
     fillArea,
     setPrimaryColor,
     pushHistory,
+    commitHistory,
     setMaskPixels,
+    setSelection,
+    copySelection,
+    pasteSelection,
+    getCompositePixelColor,
   } = useCanvasStore();
 
   const frame = frames[currentFrameIndex];
-  const layer = frame?.layers[currentLayerIndex];
 
   // Get pixels in a line (Bresenham's algorithm) - MUST be defined before render
   const getLinePixels = useCallback(
@@ -53,11 +61,17 @@ export function PixelCanvas() {
 
       let x = x0;
       let y = y0;
+      const radius = brushSize / 2;
 
       while (true) {
-        // Add brush size
+        // Add brush size with shape support
         for (let by = -Math.floor(brushSize / 2); by < Math.ceil(brushSize / 2); by++) {
           for (let bx = -Math.floor(brushSize / 2); bx < Math.ceil(brushSize / 2); bx++) {
+            // For circular brush, check if within radius
+            if (brushShape === 'circle' && brushSize > 1) {
+              const dist = Math.sqrt(bx * bx + by * by);
+              if (dist > radius) continue;
+            }
             const px = x + bx;
             const py = y + by;
             if (px >= 0 && px < width && py >= 0 && py < height) {
@@ -80,7 +94,7 @@ export function PixelCanvas() {
 
       return pixels;
     },
-    [brushSize, width, height]
+    [brushSize, brushShape, width, height]
   );
 
   // Get pixels for mask line using maskBrushSize
@@ -373,9 +387,9 @@ export function PixelCanvas() {
       if (tool === 'line') {
         previewPixels = getLinePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y);
       } else if (tool === 'rectangle') {
-        previewPixels = getRectanglePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, false);
+        previewPixels = getRectanglePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, shapeFilled);
       } else if (tool === 'ellipse') {
-        previewPixels = getEllipsePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, false);
+        previewPixels = getEllipsePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, shapeFilled);
       }
 
       for (const { x, y } of previewPixels) {
@@ -383,11 +397,38 @@ export function PixelCanvas() {
       }
       ctx.globalAlpha = 1;
     }
-  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, getLinePixels, getRectanglePixels, getEllipsePixels]);
+
+    // Draw selection preview while dragging select tool
+    if (shapeStart && shapeEnd && tool === 'select') {
+      const minX = Math.min(shapeStart.x, shapeEnd.x);
+      const maxX = Math.max(shapeStart.x, shapeEnd.x);
+      const minY = Math.min(shapeStart.y, shapeEnd.y);
+      const maxY = Math.max(shapeStart.y, shapeEnd.y);
+
+      ctx.strokeStyle = 'rgba(0, 150, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(minX * zoom, minY * zoom, (maxX - minX + 1) * zoom, (maxY - minY + 1) * zoom);
+      ctx.setLineDash([]);
+    }
+
+    // Draw active selection
+    if (selection) {
+      ctx.strokeStyle = 'rgba(0, 150, 255, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(selection.x * zoom, selection.y * zoom, selection.width * zoom, selection.height * zoom);
+      ctx.setLineDash([]);
+
+      // Fill selection with subtle highlight
+      ctx.fillStyle = 'rgba(0, 150, 255, 0.1)';
+      ctx.fillRect(selection.x * zoom, selection.y * zoom, selection.width * zoom, selection.height * zoom);
+    }
+  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection]);
 
   useEffect(() => {
     render();
-  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd]);
+  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection]);
 
   // Get pixel coordinates from mouse event
   const getPixelCoords = useCallback(
@@ -405,21 +446,6 @@ export function PixelCanvas() {
     [zoom, width, height]
   );
 
-  // Get pixel color at position
-  const getPixelColor = useCallback(
-    (x: number, y: number): Color | null => {
-      if (!layer || x < 0 || x >= width || y < 0 || y >= height) return null;
-      const idx = (y * width + x) * 4;
-      return {
-        r: layer.pixels[idx],
-        g: layer.pixels[idx + 1],
-        b: layer.pixels[idx + 2],
-        a: layer.pixels[idx + 3],
-      };
-    },
-    [layer, width, height]
-  );
-
   // Handle mouse down
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -428,7 +454,10 @@ export function PixelCanvas() {
 
       const color = e.button === 2 ? secondaryColor : primaryColor;
 
-      pushHistory();
+      // Don't push history for non-drawing tools
+      if (!['eyedropper', 'select'].includes(tool)) {
+        pushHistory();
+      }
       setIsDrawing(true);
       setLastPos(coords);
 
@@ -445,9 +474,31 @@ export function PixelCanvas() {
           fillArea(coords.x, coords.y, color);
           break;
         case 'eyedropper':
-          const pickedColor = getPixelColor(coords.x, coords.y);
+          // Use composite color picker (samples all visible layers)
+          const pickedColor = getCompositePixelColor(coords.x, coords.y);
           if (pickedColor && pickedColor.a > 0) {
             setPrimaryColor(pickedColor);
+          }
+          break;
+        case 'select':
+          // Start rectangle selection
+          setSelection(null);
+          setShapeStart(coords);
+          setShapeEnd(coords);
+          break;
+        case 'move':
+          // Start moving selection or all content
+          if (selection) {
+            // Check if clicking inside selection
+            if (
+              coords.x >= selection.x &&
+              coords.x < selection.x + selection.width &&
+              coords.y >= selection.y &&
+              coords.y < selection.y + selection.height
+            ) {
+              setMoveOffset({ x: coords.x - selection.x, y: coords.y - selection.y });
+              copySelection();
+            }
           }
           break;
         case 'mask':
@@ -470,16 +521,18 @@ export function PixelCanvas() {
       tool,
       primaryColor,
       secondaryColor,
-      setPixel,
       setPixels,
       fillArea,
       setPrimaryColor,
       getLinePixels,
       getMaskLinePixels,
-      getPixelColor,
       pushHistory,
       setMaskPixels,
       maskTool,
+      selection,
+      setSelection,
+      copySelection,
+      getCompositePixelColor,
     ]
   );
 
@@ -508,6 +561,22 @@ export function PixelCanvas() {
           }
           setLastPos(coords);
           break;
+        case 'select':
+          // Update selection rectangle preview
+          setShapeEnd(coords);
+          break;
+        case 'move':
+          // Move selection preview
+          if (moveOffset && selection) {
+            const newX = coords.x - moveOffset.x;
+            const newY = coords.y - moveOffset.y;
+            setSelection({
+              ...selection,
+              x: newX,
+              y: newY,
+            });
+          }
+          break;
         case 'mask':
           if (lastPos) {
             // Use maskTool from store (brush adds, eraser removes)
@@ -525,11 +594,31 @@ export function PixelCanvas() {
           break;
       }
     },
-    [isDrawing, lastPos, getPixelCoords, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool]
+    [isDrawing, lastPos, getPixelCoords, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool, moveOffset, selection, setSelection]
   );
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
+    // Handle select tool - finalize selection
+    if (tool === 'select' && shapeStart && shapeEnd) {
+      const minX = Math.min(shapeStart.x, shapeEnd.x);
+      const maxX = Math.max(shapeStart.x, shapeEnd.x);
+      const minY = Math.min(shapeStart.y, shapeEnd.y);
+      const maxY = Math.max(shapeStart.y, shapeEnd.y);
+      const selWidth = maxX - minX + 1;
+      const selHeight = maxY - minY + 1;
+
+      if (selWidth > 0 && selHeight > 0) {
+        setSelection({ x: minX, y: minY, width: selWidth, height: selHeight });
+      }
+    }
+
+    // Handle move tool - paste selection at new location
+    if (tool === 'move' && moveOffset && selection) {
+      pasteSelection(selection.x, selection.y);
+      commitHistory();
+    }
+
     // Commit shapes on mouse up
     if (shapeStart && shapeEnd && (tool === 'line' || tool === 'rectangle' || tool === 'ellipse')) {
       let shapePixels: { x: number; y: number }[] = [];
@@ -537,9 +626,9 @@ export function PixelCanvas() {
       if (tool === 'line') {
         shapePixels = getLinePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y);
       } else if (tool === 'rectangle') {
-        shapePixels = getRectanglePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, false);
+        shapePixels = getRectanglePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, shapeFilled);
       } else if (tool === 'ellipse') {
-        shapePixels = getEllipsePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, false);
+        shapePixels = getEllipsePixels(shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y, shapeFilled);
       }
 
       if (shapePixels.length > 0) {
@@ -547,11 +636,17 @@ export function PixelCanvas() {
       }
     }
 
+    // Commit history for drawing tools
+    if (['pencil', 'eraser', 'bucket', 'line', 'rectangle', 'ellipse', 'mask'].includes(tool)) {
+      commitHistory();
+    }
+
     setIsDrawing(false);
     setLastPos(null);
     setShapeStart(null);
     setShapeEnd(null);
-  }, [tool, shapeStart, shapeEnd, primaryColor, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels]);
+    setMoveOffset(null);
+  }, [tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
 
   // Handle mouse leave
   const handleMouseLeave = useCallback(() => {
@@ -559,6 +654,7 @@ export function PixelCanvas() {
     setLastPos(null);
     setShapeStart(null);
     setShapeEnd(null);
+    setMoveOffset(null);
   }, []);
 
   // Prevent context menu

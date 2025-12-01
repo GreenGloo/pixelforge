@@ -232,8 +232,14 @@ export function AIAnimatePanel() {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Facing</label>
-            <Select value={direction} onValueChange={setDirection}>
+            <label className="text-xs text-gray-400 mb-1 block">
+              {motionType === 'walk' ? 'Facing (All 4)' : 'Facing'}
+            </label>
+            <Select
+              value={direction}
+              onValueChange={setDirection}
+              disabled={motionType === 'walk'}
+            >
               <SelectTrigger className="h-8">
                 <SelectValue />
               </SelectTrigger>
@@ -247,6 +253,12 @@ export function AIAnimatePanel() {
             </Select>
           </div>
         </div>
+
+        {motionType === 'walk' && (
+          <p className="text-xs text-purple-400">
+            Walk cycle generates all 4 directions in one sprite sheet
+          </p>
+        )}
 
         {/* Frame count */}
         <div>

@@ -28,6 +28,23 @@ interface CanvasStore extends CanvasState {
   maskTool: 'brush' | 'eraser';
   maskBrushSize: number;
 
+  // Shape tool options
+  shapeFilled: boolean;
+  setShapeFilled: (filled: boolean) => void;
+
+  // Brush shape options
+  brushShape: 'square' | 'circle';
+  setBrushShape: (shape: 'square' | 'circle') => void;
+
+  // Selection state
+  selection: { x: number; y: number; width: number; height: number } | null;
+  selectionData: Uint8ClampedArray | null;
+  setSelection: (selection: { x: number; y: number; width: number; height: number } | null) => void;
+  copySelection: () => void;
+  cutSelection: () => void;
+  pasteSelection: (x: number, y: number) => void;
+  clearSelection: () => void;
+
   // Actions - Canvas
   setDimensions: (width: number, height: number) => void;
   setZoom: (zoom: number) => void;
@@ -81,6 +98,7 @@ interface CanvasStore extends CanvasState {
 
   // Actions - History
   pushHistory: () => void;
+  commitHistory: () => void;
   undo: () => void;
   redo: () => void;
 
@@ -88,6 +106,7 @@ interface CanvasStore extends CanvasState {
   loadFromImageData: (imageData: ImageData) => void;
   loadFromUrl: (url: string) => Promise<void>;
   getImageData: () => ImageData;
+  getCompositePixelColor: (x: number, y: number) => Color | null;
   setFrames: (frames: Frame[]) => void;
   reset: (width?: number, height?: number) => void;
 }
@@ -103,6 +122,125 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   showMask: true,
   maskTool: 'brush',
   maskBrushSize: 8,
+
+  // Shape tool options
+  shapeFilled: false,
+  setShapeFilled: (filled) => set({ shapeFilled: filled }),
+
+  // Brush shape options
+  brushShape: 'square',
+  setBrushShape: (shape) => set({ brushShape: shape }),
+
+  // Selection state
+  selection: null,
+  selectionData: null,
+  setSelection: (selection) => set({ selection }),
+
+  copySelection: () => {
+    const state = get();
+    const { selection } = state;
+    if (!selection) return;
+
+    const frame = state.frames[state.currentFrameIndex];
+    const layer = frame.layers[state.currentLayerIndex];
+
+    const selectionData = new Uint8ClampedArray(selection.width * selection.height * 4);
+
+    for (let y = 0; y < selection.height; y++) {
+      for (let x = 0; x < selection.width; x++) {
+        const srcX = selection.x + x;
+        const srcY = selection.y + y;
+        if (srcX >= 0 && srcX < state.width && srcY >= 0 && srcY < state.height) {
+          const srcIdx = (srcY * state.width + srcX) * 4;
+          const dstIdx = (y * selection.width + x) * 4;
+          selectionData[dstIdx] = layer.pixels[srcIdx];
+          selectionData[dstIdx + 1] = layer.pixels[srcIdx + 1];
+          selectionData[dstIdx + 2] = layer.pixels[srcIdx + 2];
+          selectionData[dstIdx + 3] = layer.pixels[srcIdx + 3];
+        }
+      }
+    }
+
+    set({ selectionData });
+  },
+
+  cutSelection: () => {
+    const state = get();
+    const { selection } = state;
+    if (!selection) return;
+
+    // First copy
+    get().copySelection();
+
+    // Then clear the area
+    const frame = state.frames[state.currentFrameIndex];
+    const layer = frame.layers[state.currentLayerIndex];
+    if (layer.locked) return;
+
+    const newPixels = new Uint8ClampedArray(layer.pixels);
+
+    for (let y = 0; y < selection.height; y++) {
+      for (let x = 0; x < selection.width; x++) {
+        const srcX = selection.x + x;
+        const srcY = selection.y + y;
+        if (srcX >= 0 && srcX < state.width && srcY >= 0 && srcY < state.height) {
+          const idx = (srcY * state.width + srcX) * 4;
+          newPixels[idx] = 0;
+          newPixels[idx + 1] = 0;
+          newPixels[idx + 2] = 0;
+          newPixels[idx + 3] = 0;
+        }
+      }
+    }
+
+    const newLayers = [...frame.layers];
+    newLayers[state.currentLayerIndex] = { ...layer, pixels: newPixels };
+
+    const newFrames = [...state.frames];
+    newFrames[state.currentFrameIndex] = { ...frame, layers: newLayers };
+
+    set({ frames: newFrames });
+  },
+
+  pasteSelection: (x, y) => {
+    const state = get();
+    const { selectionData, selection } = state;
+    if (!selectionData || !selection) return;
+
+    const frame = state.frames[state.currentFrameIndex];
+    const layer = frame.layers[state.currentLayerIndex];
+    if (layer.locked) return;
+
+    const newPixels = new Uint8ClampedArray(layer.pixels);
+
+    for (let sy = 0; sy < selection.height; sy++) {
+      for (let sx = 0; sx < selection.width; sx++) {
+        const dstX = x + sx;
+        const dstY = y + sy;
+        if (dstX >= 0 && dstX < state.width && dstY >= 0 && dstY < state.height) {
+          const srcIdx = (sy * selection.width + sx) * 4;
+          const dstIdx = (dstY * state.width + dstX) * 4;
+          // Only paste non-transparent pixels
+          if (selectionData[srcIdx + 3] > 0) {
+            newPixels[dstIdx] = selectionData[srcIdx];
+            newPixels[dstIdx + 1] = selectionData[srcIdx + 1];
+            newPixels[dstIdx + 2] = selectionData[srcIdx + 2];
+            newPixels[dstIdx + 3] = selectionData[srcIdx + 3];
+          }
+        }
+      }
+    }
+
+    const newLayers = [...frame.layers];
+    newLayers[state.currentLayerIndex] = { ...layer, pixels: newPixels };
+
+    const newFrames = [...state.frames];
+    newFrames[state.currentFrameIndex] = { ...frame, layers: newLayers };
+
+    set({ frames: newFrames });
+  },
+
+  clearSelection: () => set({ selection: null }),
 
   // Canvas actions
   setDimensions: (width, height) => {
@@ -581,7 +719,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       frameIndex: state.currentFrameIndex,
       layerIndex: state.currentLayerIndex,
       previousData: new Uint8ClampedArray(layer.pixels),
-      currentData: new Uint8ClampedArray(layer.pixels),
+      currentData: null as unknown as Uint8ClampedArray, // Will be set on commitHistory
     };
 
     const newHistory = state.history.slice(0, state.historyIndex + 1);
@@ -592,6 +730,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     set({ history: newHistory, historyIndex: newHistory.length - 1 });
+  },
+
+  commitHistory: () => {
+    const state = get();
+    if (state.historyIndex < 0) return;
+
+    const entry = state.history[state.historyIndex];
+    const frame = state.frames[entry.frameIndex];
+    const layer = frame.layers[entry.layerIndex];
+
+    const newHistory = [...state.history];
+    newHistory[state.historyIndex] = {
+      ...entry,
+      currentData: new Uint8ClampedArray(layer.pixels),
+    };
+
+    set({ history: newHistory });
   },
 
   undo: () => {
@@ -697,6 +852,35 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     return new ImageData(composited, state.width, state.height);
+  },
+
+  getCompositePixelColor: (x, y) => {
+    const state = get();
+    if (x < 0 || x >= state.width || y < 0 || y >= state.height) return null;
+
+    const frame = state.frames[state.currentFrameIndex];
+    let r = 0, g = 0, b = 0, a = 0;
+
+    // Composite all visible layers at this pixel
+    for (const layer of frame.layers) {
+      if (!layer.visible) continue;
+
+      const idx = (y * state.width + x) * 4;
+      const srcAlpha = (layer.pixels[idx + 3] / 255) * layer.opacity;
+
+      if (srcAlpha > 0) {
+        const dstAlpha = a / 255;
+        const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
+        if (outAlpha > 0) {
+          r = (layer.pixels[idx] * srcAlpha + r * dstAlpha * (1 - srcAlpha)) / outAlpha;
+          g = (layer.pixels[idx + 1] * srcAlpha + g * dstAlpha * (1 - srcAlpha)) / outAlpha;
+          b = (layer.pixels[idx + 2] * srcAlpha + b * dstAlpha * (1 - srcAlpha)) / outAlpha;
+          a = outAlpha * 255;
+        }
+      }
+    }
+
+    return { r: Math.round(r), g: Math.round(g), b: Math.round(b), a: Math.round(a) };
   },
 
   setFrames: (frames) => set({ frames }),
