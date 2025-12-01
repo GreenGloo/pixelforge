@@ -19,8 +19,21 @@ import {
   BONE_COLORS,
 } from './types';
 import { AnimationTemplateType, loadAnimationTemplate, ANIMATION_TEMPLATES } from './animationTemplates';
+import {
+  IKChain,
+  IKConstraint,
+  createIKChain,
+  createHumanoidConstraints,
+  solveIK,
+} from './ikSolver';
 
 interface SkeletonStore extends SkeletonState {
+  // IK State
+  ikChains: IKChain[];
+  ikConstraints: IKConstraint[];
+  ikEnabled: boolean;
+  activeIKChainId: string | null;
+
   // Bone actions
   addBone: (name: string, parentId: string | null, x: number, y: number) => void;
   removeBone: (id: string) => void;
@@ -29,6 +42,15 @@ interface SkeletonStore extends SkeletonState {
   moveBone: (id: string, x: number, y: number) => void;
   rotateBone: (id: string, rotation: number) => void;
   renameBone: (id: string, name: string) => void;
+
+  // IK actions
+  addIKChain: (name: string, endEffectorBoneId: string, chainLength?: number) => void;
+  removeIKChain: (id: string) => void;
+  updateIKTarget: (chainId: string, x: number, y: number) => void;
+  setActiveIKChain: (id: string | null) => void;
+  toggleIK: () => void;
+  solveIKChain: (chainId: string, transforms: Record<string, BoneTransform>) => Record<string, BoneTransform>;
+  setupHumanoidIK: () => void;
 
   // Skeleton presets
   loadHumanoidSkeleton: () => void;
@@ -72,6 +94,12 @@ interface SkeletonStore extends SkeletonState {
 
 export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   ...createInitialSkeletonState(),
+
+  // IK initial state
+  ikChains: [],
+  ikConstraints: [],
+  ikEnabled: false,
+  activeIKChainId: null,
 
   // Bone actions
   addBone: (name, parentId, x, y) => {
@@ -157,7 +185,90 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   },
 
   clearSkeleton: () => {
-    set({ bones: [], selectedBoneId: null, poses: [], animations: [] });
+    set({ bones: [], selectedBoneId: null, poses: [], animations: [], ikChains: [], ikConstraints: [] });
+  },
+
+  // IK actions
+  addIKChain: (name, endEffectorBoneId, chainLength = 3) => {
+    const chain = createIKChain(name, endEffectorBoneId, chainLength);
+    set({ ikChains: [...get().ikChains, chain] });
+  },
+
+  removeIKChain: (id) => {
+    set({
+      ikChains: get().ikChains.filter(c => c.id !== id),
+      activeIKChainId: get().activeIKChainId === id ? null : get().activeIKChainId,
+    });
+  },
+
+  updateIKTarget: (chainId, x, y) => {
+    set({
+      ikChains: get().ikChains.map(c =>
+        c.id === chainId ? { ...c, targetX: x, targetY: y } : c
+      ),
+    });
+  },
+
+  setActiveIKChain: (id) => set({ activeIKChainId: id }),
+
+  toggleIK: () => set({ ikEnabled: !get().ikEnabled }),
+
+  solveIKChain: (chainId, transforms) => {
+    const chain = get().ikChains.find(c => c.id === chainId);
+    if (!chain || !chain.enabled) {
+      return transforms;
+    }
+
+    return solveIK(get().bones, chain, transforms, get().ikConstraints);
+  },
+
+  setupHumanoidIK: () => {
+    const bones = get().bones;
+    const boneNameToId = new Map(bones.map(b => [b.name, b.id]));
+
+    // Create IK chains for hands and feet
+    const chains: IKChain[] = [];
+
+    const handL = boneNameToId.get('hand_L');
+    if (handL) {
+      const chain = createIKChain('Left Hand', handL, 3);
+      chain.targetX = 20;
+      chain.targetY = 32;
+      chains.push(chain);
+    }
+
+    const handR = boneNameToId.get('hand_R');
+    if (handR) {
+      const chain = createIKChain('Right Hand', handR, 3);
+      chain.targetX = 44;
+      chain.targetY = 32;
+      chains.push(chain);
+    }
+
+    const footL = boneNameToId.get('foot_L');
+    if (footL) {
+      const chain = createIKChain('Left Foot', footL, 3);
+      chain.targetX = 24;
+      chain.targetY = 60;
+      chains.push(chain);
+    }
+
+    const footR = boneNameToId.get('foot_R');
+    if (footR) {
+      const chain = createIKChain('Right Foot', footR, 3);
+      chain.targetX = 40;
+      chain.targetY = 60;
+      chains.push(chain);
+    }
+
+    // Create constraints for realistic movement
+    const constraints = createHumanoidConstraints(bones, boneNameToId);
+
+    set({
+      ikChains: chains,
+      ikConstraints: constraints,
+      ikEnabled: true,
+    });
   },
 
   // Pose actions

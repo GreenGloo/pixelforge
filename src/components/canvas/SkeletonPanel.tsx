@@ -73,6 +73,15 @@ export function SkeletonPanel() {
     exportSkeleton,
     loadAnimationTemplate,
     reset,
+    // IK
+    ikChains,
+    ikEnabled,
+    activeIKChainId,
+    toggleIK,
+    setActiveIKChain,
+    updateIKTarget,
+    solveIKChain,
+    setupHumanoidIK,
   } = useSkeletonStore();
 
   const [currentTransforms, setCurrentTransforms] = useState<Record<string, BoneTransform>>({});
@@ -98,6 +107,9 @@ export function SkeletonPanel() {
   const [aiCharacterPrompt, setAICharacterPrompt] = useState('');
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [generatedFrames, setGeneratedFrames] = useState<string[]>([]);
+
+  // IK state
+  const [isIKExpanded, setIsIKExpanded] = useState(false);
 
   const selectedBone = bones.find(b => b.id === selectedBoneId);
   const currentAnimation = animations.find(a => a.id === currentAnimationId);
@@ -733,6 +745,134 @@ export function SkeletonPanel() {
                       Click a frame to load on canvas
                     </p>
                   </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* IK (Inverse Kinematics) section */}
+          <Collapsible open={isIKExpanded} onOpenChange={setIsIKExpanded}>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs text-gray-400 hover:text-gray-200">
+              {isIKExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              <BoneIcon className="w-3 h-3 text-yellow-400" />
+              IK Controls
+              {ikEnabled && (
+                <span className="ml-auto text-[9px] text-green-400">ON</span>
+              )}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-2">
+              <div className="bg-[#0f0f1a] rounded p-2 space-y-2">
+                {/* IK Toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Enable IK</span>
+                  <Switch
+                    checked={ikEnabled}
+                    onCheckedChange={toggleIK}
+                    className="data-[state=checked]:bg-yellow-500"
+                  />
+                </div>
+
+                {/* Setup Humanoid IK */}
+                {bones.length > 0 && ikChains.length === 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-7 text-xs"
+                    onClick={setupHumanoidIK}
+                  >
+                    <Wand2 className="w-3 h-3 mr-1" />
+                    Setup Humanoid IK
+                  </Button>
+                )}
+
+                {/* IK Chains */}
+                {ikChains.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-gray-500 block">IK Chains</label>
+                    {ikChains.map((chain) => (
+                      <button
+                        key={chain.id}
+                        className={cn(
+                          'w-full px-2 py-1 text-left text-xs rounded transition-colors',
+                          activeIKChainId === chain.id
+                            ? 'bg-yellow-600/30 text-yellow-300'
+                            : 'hover:bg-[#2a2a4e] text-gray-400'
+                        )}
+                        onClick={() => setActiveIKChain(chain.id === activeIKChainId ? null : chain.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              'w-2 h-2 rounded-full',
+                              chain.enabled ? 'bg-green-400' : 'bg-gray-600'
+                            )}
+                          />
+                          {chain.name}
+                        </div>
+                        {activeIKChainId === chain.id && (
+                          <div className="mt-1 text-[10px] text-gray-500">
+                            Target: ({Math.round(chain.targetX)}, {Math.round(chain.targetY)})
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Active IK Chain Controls */}
+                {activeIKChainId && ikChains.find(c => c.id === activeIKChainId) && (
+                  <div className="space-y-2 pt-2 border-t border-[#2a2a4e]">
+                    <label className="text-[10px] text-gray-500 block">
+                      Move Target (X, Y)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-gray-600 block">X</label>
+                        <Input
+                          type="number"
+                          className="h-6 text-xs"
+                          value={Math.round(ikChains.find(c => c.id === activeIKChainId)?.targetX || 0)}
+                          onChange={(e) => {
+                            const x = parseFloat(e.target.value) || 0;
+                            const chain = ikChains.find(c => c.id === activeIKChainId);
+                            if (chain) {
+                              updateIKTarget(activeIKChainId, x, chain.targetY);
+                              // Solve IK and update transforms
+                              const newTransforms = solveIKChain(activeIKChainId, currentTransforms);
+                              setCurrentTransforms(newTransforms);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-600 block">Y</label>
+                        <Input
+                          type="number"
+                          className="h-6 text-xs"
+                          value={Math.round(ikChains.find(c => c.id === activeIKChainId)?.targetY || 0)}
+                          onChange={(e) => {
+                            const y = parseFloat(e.target.value) || 0;
+                            const chain = ikChains.find(c => c.id === activeIKChainId);
+                            if (chain) {
+                              updateIKTarget(activeIKChainId, chain.targetX, y);
+                              // Solve IK and update transforms
+                              const newTransforms = solveIKChain(activeIKChainId, currentTransforms);
+                              setCurrentTransforms(newTransforms);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-gray-600">
+                      Drag IK target on canvas or enter coordinates
+                    </p>
+                  </div>
+                )}
+
+                {bones.length === 0 && (
+                  <p className="text-[10px] text-gray-500 text-center py-2">
+                    Load a skeleton first
+                  </p>
                 )}
               </div>
             </CollapsibleContent>
