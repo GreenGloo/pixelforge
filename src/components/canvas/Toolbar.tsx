@@ -107,7 +107,7 @@ export function Toolbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col gap-2 p-2 bg-[#1a1a2e] border-r border-[#2a2a4e]">
+      <div className="flex flex-col gap-2 p-2 bg-[#1a1a2e] border-r border-[#2a2a4e] h-full overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a4e] scrollbar-track-transparent">
         {/* Tools */}
         <div className="flex flex-col gap-1">
           {tools.map(({ id, icon: Icon, label, shortcut }) => (
