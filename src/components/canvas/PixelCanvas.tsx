@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/lib/canvas/useCanvasStore';
+import { useSkeletonStore } from '@/lib/skeleton/useSkeletonStore';
 import { Color } from '@/lib/canvas/types';
 
 export function PixelCanvas() {
@@ -14,6 +15,16 @@ export function PixelCanvas() {
   const [shapeEnd, setShapeEnd] = useState<{ x: number; y: number } | null>(null);
   // For move tool - track drag offset
   const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
+  // For IK target dragging
+  const [draggingIKChainId, setDraggingIKChainId] = useState<string | null>(null);
+
+  // Get IK state from skeleton store
+  const {
+    ikChains,
+    ikEnabled,
+    updateIKTarget,
+    setActiveIKChain,
+  } = useSkeletonStore();
 
   const {
     width,
@@ -424,11 +435,56 @@ export function PixelCanvas() {
       ctx.fillStyle = 'rgba(0, 150, 255, 0.1)';
       ctx.fillRect(selection.x * zoom, selection.y * zoom, selection.width * zoom, selection.height * zoom);
     }
-  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection]);
+
+    // Draw IK targets when IK is enabled
+    if (ikEnabled && ikChains.length > 0) {
+      const IK_TARGET_RADIUS = Math.max(4, zoom * 0.5);
+
+      for (const chain of ikChains) {
+        if (!chain.enabled) continue;
+
+        const screenX = chain.targetX * zoom;
+        const screenY = chain.targetY * zoom;
+
+        // Draw target circle
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, IK_TARGET_RADIUS, 0, Math.PI * 2);
+
+        // Different color for active/dragging chain
+        if (draggingIKChainId === chain.id) {
+          ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
+        } else {
+          ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        }
+
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw crosshair
+        ctx.beginPath();
+        ctx.moveTo(screenX - IK_TARGET_RADIUS - 2, screenY);
+        ctx.lineTo(screenX + IK_TARGET_RADIUS + 2, screenY);
+        ctx.moveTo(screenX, screenY - IK_TARGET_RADIUS - 2);
+        ctx.lineTo(screenX, screenY + IK_TARGET_RADIUS + 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw chain name label
+        ctx.font = '10px monospace';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.textAlign = 'center';
+        ctx.fillText(chain.name, screenX, screenY - IK_TARGET_RADIUS - 6);
+      }
+    }
+  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection, ikEnabled, ikChains, draggingIKChainId]);
 
   useEffect(() => {
     render();
-  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection]);
+  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection, ikChains, ikEnabled]);
 
   // Get pixel coordinates from mouse event
   const getPixelCoords = useCallback(
@@ -446,9 +502,60 @@ export function PixelCanvas() {
     [zoom, width, height]
   );
 
+  // Get raw canvas coordinates (not pixel-snapped) for IK dragging
+  const getCanvasCoords = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+
+      return { x, y };
+    },
+    [zoom]
+  );
+
+  // Check if a click hits an IK target
+  const getIKTargetAtPosition = useCallback(
+    (x: number, y: number): string | null => {
+      if (!ikEnabled) return null;
+
+      const IK_HIT_RADIUS = Math.max(6, zoom * 0.6) / zoom; // Convert to pixel space
+
+      for (const chain of ikChains) {
+        if (!chain.enabled) continue;
+
+        const dx = x - chain.targetX;
+        const dy = y - chain.targetY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= IK_HIT_RADIUS) {
+          return chain.id;
+        }
+      }
+      return null;
+    },
+    [ikEnabled, ikChains, zoom]
+  );
+
   // Handle mouse down
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Check for IK target click first (when IK is enabled)
+      if (ikEnabled) {
+        const canvasCoords = getCanvasCoords(e);
+        if (canvasCoords) {
+          const ikChainId = getIKTargetAtPosition(canvasCoords.x, canvasCoords.y);
+          if (ikChainId) {
+            setDraggingIKChainId(ikChainId);
+            setActiveIKChain(ikChainId);
+            return; // Don't process as regular drawing
+          }
+        }
+      }
+
       const coords = getPixelCoords(e);
       if (!coords) return;
 
@@ -518,6 +625,10 @@ export function PixelCanvas() {
     },
     [
       getPixelCoords,
+      getCanvasCoords,
+      getIKTargetAtPosition,
+      ikEnabled,
+      setActiveIKChain,
       tool,
       primaryColor,
       secondaryColor,
@@ -539,6 +650,15 @@ export function PixelCanvas() {
   // Handle mouse move
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Handle IK target dragging
+      if (draggingIKChainId) {
+        const canvasCoords = getCanvasCoords(e);
+        if (canvasCoords) {
+          updateIKTarget(draggingIKChainId, canvasCoords.x, canvasCoords.y);
+        }
+        return;
+      }
+
       if (!isDrawing) return;
 
       const coords = getPixelCoords(e);
@@ -594,11 +714,17 @@ export function PixelCanvas() {
           break;
       }
     },
-    [isDrawing, lastPos, getPixelCoords, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool, moveOffset, selection, setSelection]
+    [isDrawing, lastPos, getPixelCoords, getCanvasCoords, draggingIKChainId, updateIKTarget, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool, moveOffset, selection, setSelection]
   );
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
+    // Stop IK target dragging
+    if (draggingIKChainId) {
+      setDraggingIKChainId(null);
+      return;
+    }
+
     // Handle select tool - finalize selection
     if (tool === 'select' && shapeStart && shapeEnd) {
       const minX = Math.min(shapeStart.x, shapeEnd.x);
@@ -646,10 +772,14 @@ export function PixelCanvas() {
     setShapeStart(null);
     setShapeEnd(null);
     setMoveOffset(null);
-  }, [tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
+  }, [draggingIKChainId, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
 
   // Handle mouse leave - don't stop drawing for continuous tools
   const handleMouseLeave = useCallback(() => {
+    // Stop IK dragging on leave
+    if (draggingIKChainId) {
+      setDraggingIKChainId(null);
+    }
     // For shape tools, reset the preview but keep drawing state
     // For continuous tools (pencil, eraser, mask), keep drawing state
     // so user can continue when mouse re-enters
@@ -665,7 +795,7 @@ export function PixelCanvas() {
     // For pencil, eraser, mask - keep isDrawing true, just clear lastPos
     // so the next stroke starts fresh when mouse re-enters
     setLastPos(null);
-  }, [tool]);
+  }, [draggingIKChainId, tool]);
 
   // Global mouseup listener to stop drawing when mouse released outside canvas
   useEffect(() => {
@@ -686,6 +816,18 @@ export function PixelCanvas() {
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDrawing, tool, commitHistory]);
+
+  // Global mouseup listener for IK target dragging
+  useEffect(() => {
+    if (!draggingIKChainId) return;
+
+    const handleGlobalMouseUp = () => {
+      setDraggingIKChainId(null);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [draggingIKChainId]);
 
   // Prevent context menu
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
