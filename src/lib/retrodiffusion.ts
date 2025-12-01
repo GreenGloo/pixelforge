@@ -679,7 +679,7 @@ export async function generateWalkingAnimation(
       style: 'default',
       width: 64,
       height: 64,
-      seed: seed + i,
+      seed: seed,  // Same seed for all frames to keep character consistent
       removeBackground: true,
     });
 
@@ -772,7 +772,7 @@ export async function generateAnimationFrames(
       style: 'default',
       width,
       height,
-      seed: seed + i,  // Slight seed variation for animation
+      seed: seed,  // Same seed for all frames to keep character consistent
       removeBackground: true,
     });
 
