@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/lib/canvas/useCanvasStore';
 import { useSkeletonStore } from '@/lib/skeleton/useSkeletonStore';
 import { Color } from '@/lib/canvas/types';
+import { getBoneWorldPosition } from '@/lib/skeleton/types';
 
 export function PixelCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -18,12 +19,15 @@ export function PixelCanvas() {
   // For IK target dragging
   const [draggingIKChainId, setDraggingIKChainId] = useState<string | null>(null);
 
-  // Get IK state from skeleton store
+  // Get skeleton state from skeleton store
   const {
+    bones,
+    showBones,
     ikChains,
     ikEnabled,
     updateIKTarget,
     setActiveIKChain,
+    selectedBoneId,
   } = useSkeletonStore();
 
   const {
@@ -436,6 +440,88 @@ export function PixelCanvas() {
       ctx.fillRect(selection.x * zoom, selection.y * zoom, selection.width * zoom, selection.height * zoom);
     }
 
+    // Draw skeleton bones when visible
+    if (showBones && bones.length > 0) {
+      const JOINT_RADIUS = Math.max(3, zoom * 0.4);
+      const boneMap = new Map(bones.map(b => [b.id, b]));
+
+      // Draw bones (lines connecting joints)
+      for (const bone of bones) {
+        if (!bone.parentId) continue;
+
+        const parent = boneMap.get(bone.parentId);
+        if (!parent) continue;
+
+        // Get world positions
+        const bonePos = getBoneWorldPosition(bone, bones);
+        const parentPos = getBoneWorldPosition(parent, bones);
+
+        const startX = parentPos.x * zoom;
+        const startY = parentPos.y * zoom;
+        const endX = bonePos.x * zoom;
+        const endY = bonePos.y * zoom;
+
+        // Draw bone line
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+
+        // Use bone color with transparency
+        const isSelected = bone.id === selectedBoneId;
+        if (isSelected) {
+          ctx.strokeStyle = 'rgba(255, 255, 100, 0.9)';
+        } else {
+          // Convert hex color to rgba
+          const hex = bone.color.replace('#', '');
+          const r = parseInt(hex.substring(0, 2), 16);
+          const g = parseInt(hex.substring(2, 4), 16);
+          const b = parseInt(hex.substring(4, 6), 16);
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.7)`;
+        }
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.stroke();
+      }
+
+      // Draw joints (circles at bone positions)
+      for (const bone of bones) {
+        const pos = getBoneWorldPosition(bone, bones);
+        const screenX = pos.x * zoom;
+        const screenY = pos.y * zoom;
+
+        const isSelected = bone.id === selectedBoneId;
+        const isRoot = !bone.parentId;
+
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, isRoot ? JOINT_RADIUS * 1.5 : JOINT_RADIUS, 0, Math.PI * 2);
+
+        // Root bone is larger, selected bone is highlighted
+        if (isSelected) {
+          ctx.fillStyle = 'rgba(255, 255, 100, 0.9)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
+          ctx.lineWidth = 2;
+        } else if (isRoot) {
+          ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.lineWidth = 2;
+        } else {
+          ctx.fillStyle = bone.color;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.lineWidth = 1;
+        }
+
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw bone name for root and selected bones
+        if (isRoot || isSelected) {
+          ctx.font = '9px monospace';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.textAlign = 'center';
+          ctx.fillText(bone.name, screenX, screenY - JOINT_RADIUS - 4);
+        }
+      }
+    }
+
     // Draw IK targets when IK is enabled
     if (ikEnabled && ikChains.length > 0) {
       const IK_TARGET_RADIUS = Math.max(4, zoom * 0.5);
@@ -480,11 +566,11 @@ export function PixelCanvas() {
         ctx.fillText(chain.name, screenX, screenY - IK_TARGET_RADIUS - 6);
       }
     }
-  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection, ikEnabled, ikChains, draggingIKChainId]);
+  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection, ikEnabled, ikChains, draggingIKChainId, showBones, bones, selectedBoneId]);
 
   useEffect(() => {
     render();
-  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection, ikChains, ikEnabled]);
+  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection, ikChains, ikEnabled, bones, showBones, selectedBoneId]);
 
   // Get pixel coordinates from mouse event
   const getPixelCoords = useCallback(
