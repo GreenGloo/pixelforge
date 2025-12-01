@@ -155,19 +155,31 @@ export function SpriteRotationPanel() {
     await loadFromUrl(imageUrl);
   };
 
-  const handleDownloadSpritesheet = () => {
+  const handleDownloadSpritesheet = async () => {
     if (!spriteSheetUrl && rotations.length === 0) return;
 
-    // If we have the original sprite sheet URL, download it directly
+    // If we have the original sprite sheet URL, fetch and download as blob
     if (spriteSheetUrl) {
-      const link = document.createElement('a');
-      link.download = `sprite-rotations-4dir.png`;
-      link.href = spriteSheetUrl;
-      link.click();
+      try {
+        const response = await fetch(spriteSheetUrl);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `sprite-rotations-${rotations.length}dir.png`;
+        link.href = blobUrl;
+        link.click();
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        // Fallback: use canvas method if fetch fails (CORS)
+        downloadFromRotations();
+      }
       return;
     }
 
-    // Fallback: Create spritesheet from individual rotations
+    downloadFromRotations();
+  };
+
+  const downloadFromRotations = () => {
     if (rotations.length === 0) return;
 
     const img = new Image();
@@ -191,7 +203,7 @@ export function SpriteRotationPanel() {
           loaded++;
           if (loaded === rotations.length) {
             const link = document.createElement('a');
-            link.download = `sprite-rotations-4dir.png`;
+            link.download = `sprite-rotations-${rotations.length}dir.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
           }
