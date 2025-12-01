@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, Play, Pause, Download, FileImage, Film, Archive } from 'lucide-react';
+import { Loader2, Sparkles, Play, Pause, Download, FileImage, Film, Archive, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +37,18 @@ const DIRECTIONS = [
 
 const FRAME_COUNTS = [4, 6, 8];
 
+// One-click animation presets
+const QUICK_PRESETS = [
+  { label: 'Knight', prompt: 'pixel art knight with sword and shield, medieval armor', icon: '⚔️' },
+  { label: 'Wizard', prompt: 'pixel art wizard with purple robe and magic staff', icon: '🧙' },
+  { label: 'Ninja', prompt: 'pixel art ninja in black outfit with katana', icon: '🥷' },
+  { label: 'Archer', prompt: 'pixel art archer with bow and quiver, green hood', icon: '🏹' },
+  { label: 'Zombie', prompt: 'pixel art zombie monster, tattered clothes, green skin', icon: '🧟' },
+  { label: 'Robot', prompt: 'pixel art robot character, metallic body, glowing eyes', icon: '🤖' },
+  { label: 'Skeleton', prompt: 'pixel art skeleton warrior with bone sword', icon: '💀' },
+  { label: 'Slime', prompt: 'pixel art slime monster, blue gelatinous blob', icon: '🫧' },
+];
+
 export function AIAnimatePanel() {
   const { data: session } = useSession();
 
@@ -45,6 +57,7 @@ export function AIAnimatePanel() {
   const [direction, setDirection] = useState('right');
   const [numFrames, setNumFrames] = useState(4);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Sprite sheet state
   const [spriteSheetUrl, setSpriteSheetUrl] = useState<string | null>(null);
@@ -314,6 +327,64 @@ export function AIAnimatePanel() {
     }
   };
 
+  // One-click generation with preset
+  const handleQuickGenerate = async (presetPrompt: string) => {
+    if (!session?.user) {
+      toast.error('Please sign in to generate animations');
+      return;
+    }
+
+    setPrompt(presetPrompt);
+    setIsGenerating(true);
+    setSpriteSheetUrl(null);
+    setFrameCount(0);
+    setFrameUrls([]);
+    setFrameImages([]);
+    setCurrentFrameIndex(0);
+    setIsPlaying(false);
+
+    try {
+      const response = await fetch('/api/animate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: presetPrompt,
+          numFrames: 4,
+          motionType: 'walk',
+          direction: 'right',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          toast.error(`Insufficient credits. Need ${data.required}, have ${data.available}`);
+        } else {
+          toast.error(data.error || 'Generation failed');
+        }
+        return;
+      }
+
+      toast.success(`Animation generated! Used ${data.creditsUsed} credits`);
+
+      if (data.frames && data.frames.length > 0) {
+        setFrameUrls(data.frames);
+        setFrameCount(data.frames.length);
+      } else if (data.spriteSheetUrl) {
+        setSpriteSheetUrl(data.spriteSheetUrl);
+        setFrameCount(data.frameCount);
+      }
+
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('Generation error:', error);
+      toast.error('Failed to generate animation');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div className="bg-[#1a1a2e] border-b border-[#2a2a4e] p-4">
       <div className="flex items-center gap-2 mb-4">
@@ -327,80 +398,142 @@ export function AIAnimatePanel() {
       </div>
 
       <div className="space-y-4">
-        {/* Prompt */}
+        {/* One-Click Presets */}
         <div>
-          <label className="text-xs text-gray-400 mb-1 block">
-            Describe your character
-          </label>
-          <Textarea
-            placeholder="e.g., knight with blue armor and sword, wizard with purple robe, ninja in black"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className="h-16 text-sm"
-          />
-        </div>
-
-        {/* Motion and Direction */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Animation</label>
-            <Select value={motionType} onValueChange={setMotionType}>
-              <SelectTrigger className="h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MOTION_TYPES.map((motion) => (
-                  <SelectItem key={motion.value} value={motion.value}>
-                    {motion.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="w-4 h-4 text-yellow-400" />
+            <label className="text-xs text-gray-400">One-Click Animation</label>
           </div>
-
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">
-              Facing Direction
-            </label>
-            <Select
-              value={direction}
-              onValueChange={setDirection}
-            >
-              <SelectTrigger className="h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DIRECTIONS.map((dir) => (
-                  <SelectItem key={dir.value} value={dir.value}>
-                    {dir.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <p className="text-xs text-purple-400">
-          Generates {numFrames} animation frames for your character
-        </p>
-
-        {/* Frame count */}
-        <div>
-          <label className="text-xs text-gray-400 mb-2 block">Frames</label>
-          <div className="flex gap-1">
-            {FRAME_COUNTS.map((count) => (
+          <div className="grid grid-cols-4 gap-1">
+            {QUICK_PRESETS.map((preset) => (
               <Button
-                key={count}
-                variant={numFrames === count ? 'default' : 'outline'}
+                key={preset.label}
+                variant="outline"
                 size="sm"
-                className="flex-1 h-7 text-xs"
-                onClick={() => setNumFrames(count)}
+                className="h-12 flex-col gap-0.5 text-[10px] hover:bg-purple-900/30 hover:border-purple-500/50"
+                onClick={() => handleQuickGenerate(preset.prompt)}
+                disabled={isGenerating || !session?.user}
               >
-                {count}
+                <span className="text-base">{preset.icon}</span>
+                <span>{preset.label}</span>
               </Button>
             ))}
           </div>
+          <p className="text-[10px] text-gray-500 mt-1 text-center">
+            Click any preset to instantly generate a 4-frame walk cycle
+          </p>
         </div>
+
+        {/* Divider */}
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-[#2a2a4e]" />
+          </div>
+          <div className="relative flex justify-center">
+            <button
+              className="bg-[#1a1a2e] px-2 text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showAdvanced ? 'Hide' : 'Show'} Custom Options
+            </button>
+          </div>
+        </div>
+
+        {/* Advanced/Custom Options */}
+        {showAdvanced && (
+          <>
+            {/* Prompt */}
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">
+                Custom Character Description
+              </label>
+              <Textarea
+                placeholder="e.g., knight with blue armor and sword, wizard with purple robe, ninja in black"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                className="h-16 text-sm"
+              />
+            </div>
+
+            {/* Motion and Direction */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Animation</label>
+                <Select value={motionType} onValueChange={setMotionType}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MOTION_TYPES.map((motion) => (
+                      <SelectItem key={motion.value} value={motion.value}>
+                        {motion.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">
+                  Facing Direction
+                </label>
+                <Select
+                  value={direction}
+                  onValueChange={setDirection}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DIRECTIONS.map((dir) => (
+                      <SelectItem key={dir.value} value={dir.value}>
+                        {dir.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Frame count */}
+            <div>
+              <label className="text-xs text-gray-400 mb-2 block">Frames</label>
+              <div className="flex gap-1">
+                {FRAME_COUNTS.map((count) => (
+                  <Button
+                    key={count}
+                    variant={numFrames === count ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 h-7 text-xs"
+                    onClick={() => setNumFrames(count)}
+                  >
+                    {count}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Generate button for custom */}
+            <Button
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600"
+              onClick={handleGenerate}
+              disabled={isGenerating || !session?.user || !prompt.trim()}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Custom ({cost} credits)
+                </>
+              )}
+            </Button>
+          </>
+        )}
 
         {/* Animation Preview */}
         {(frameImages.length > 0 || spriteSheetUrl) && (
@@ -503,34 +636,19 @@ export function AIAnimatePanel() {
           </div>
         )}
 
-        {/* Generate button */}
-        <Button
-          className="w-full bg-gradient-to-r from-purple-600 to-pink-600"
-          onClick={handleGenerate}
-          disabled={isGenerating || !session?.user}
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Generating sprite sheet...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4 mr-2" />
-              Generate Sprite Sheet ({cost} credits)
-            </>
-          )}
-        </Button>
+        {/* Loading indicator for one-click */}
+        {isGenerating && !showAdvanced && (
+          <div className="flex items-center justify-center gap-2 py-3 bg-purple-900/20 rounded">
+            <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+            <span className="text-xs text-purple-400">Generating animation...</span>
+          </div>
+        )}
 
         {!session?.user && (
           <p className="text-xs text-gray-500 text-center">
             Sign in to generate animations
           </p>
         )}
-
-        <p className="text-xs text-gray-500">
-          Generates a horizontal sprite sheet with {numFrames} frames showing the same character in different poses.
-        </p>
       </div>
     </div>
   );
