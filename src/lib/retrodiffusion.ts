@@ -459,7 +459,7 @@ export interface SpriteSheetResult {
   spriteSheetUrl: string;
   spriteWidth: number;
   spriteHeight: number;
-  columns: number;  // Number of sprites horizontally
+  columns: number;  // Number of sprites horizontally (auto-detected)
 }
 
 /**
@@ -469,8 +469,8 @@ export interface SpriteSheetResult {
  * Using img2img with this style produces inconsistent results because the model
  * doesn't understand that all 4 views should look like the input image.
  *
- * This function generates a sprite sheet with all 4 rotations from a text description.
- * The user should provide a detailed character description for best results.
+ * This function generates a sprite sheet with rotations from a text description.
+ * The model determines the number of views (typically 4 or 8).
  */
 export async function generateCharacterTurnaround(
   sourceImage: string | null,
@@ -481,36 +481,32 @@ export async function generateCharacterTurnaround(
   }
 ): Promise<SpriteSheetResult> {
   const description = options?.characterDescription || 'pixel art character sprite';
-  const spriteWidth = options?.width || 64;
   const spriteHeight = options?.height || 64;
 
   console.log('Generating character turnaround with Retro Diffusion...');
   console.log('Character description:', description);
 
   // Build a detailed prompt for consistent character turnaround
-  // character_turnaround style produces 4 views: front, side, back, side (mirrored)
-  const turnaroundPrompt = `${description}, character sprite sheet, front view, right side view, back view, left side view, pixel art game sprite, full body visible, consistent character design, same outfit and colors from all angles`;
+  const turnaroundPrompt = `${description}, character sprite sheet, pixel art game sprite, full body visible, consistent character design, same outfit and colors from all angles`;
 
   // Generate the turnaround sprite sheet using character_turnaround style
-  // NOTE: We do NOT use inputImage because character_turnaround works best with text-only
-  // The style itself ensures consistency across all 4 views
+  // Let the model decide the output dimensions for best results
   const turnaroundUrl = await generateWithRetroDiffusion({
     prompt: turnaroundPrompt,
     style: 'character_turnaround',
-    // Output will be wider to contain all 4 sprites (4x width)
-    width: spriteWidth * 4,
+    // Don't force width - let model output its natural format
     height: spriteHeight,
-    // No inputImage - text-only generation for consistent results
     removeBackground: true,
   });
 
   console.log('Generated turnaround sprite sheet:', turnaroundUrl?.substring?.(0, 100) || turnaroundUrl);
 
+  // Return with columns=-1 to signal frontend should auto-detect from image
   return {
     spriteSheetUrl: turnaroundUrl,
-    spriteWidth,
+    spriteWidth: -1,  // Will be calculated from actual image
     spriteHeight,
-    columns: 4,  // 4 sprites: front, right, back, left
+    columns: -1,  // Frontend will auto-detect based on image aspect ratio
   };
 }
 

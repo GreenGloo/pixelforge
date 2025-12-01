@@ -24,6 +24,12 @@ interface SpriteSheetResponse {
   directions: string[];
 }
 
+// Direction labels for different column counts
+const DIRECTION_LABELS: Record<number, string[]> = {
+  4: ['front', 'right', 'back', 'left'],
+  8: ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'],
+};
+
 // Split a sprite sheet into individual frames using canvas
 async function splitSpriteSheet(spriteSheet: SpriteSheetResponse): Promise<Rotation[]> {
   return new Promise((resolve, reject) => {
@@ -32,11 +38,24 @@ async function splitSpriteSheet(spriteSheet: SpriteSheetResponse): Promise<Rotat
 
     img.onload = () => {
       const rotations: Rotation[] = [];
-      const { columns, directions } = spriteSheet;
 
-      // Calculate actual sprite dimensions from the loaded image
+      // Auto-detect columns if not specified (columns === -1)
+      // Assume square sprites, so columns = width / height
+      let columns = spriteSheet.columns;
+      if (columns <= 0) {
+        columns = Math.round(img.width / img.height);
+        // Clamp to reasonable values (4 or 8)
+        if (columns < 4) columns = 4;
+        if (columns > 8) columns = 8;
+        // Round to nearest of 4 or 8
+        columns = columns <= 6 ? 4 : 8;
+      }
+
+      const directions = DIRECTION_LABELS[columns] || DIRECTION_LABELS[4];
       const spriteWidth = img.width / columns;
       const spriteHeight = img.height;
+
+      console.log(`Splitting sprite sheet: ${img.width}x${img.height}, detected ${columns} columns`);
 
       for (let i = 0; i < columns; i++) {
         const canvas = document.createElement('canvas');
@@ -255,7 +274,7 @@ export function SpriteRotationPanel() {
                 <Grid className="w-3 h-3 mr-1" /> Spritesheet
               </Button>
             </div>
-            <div className="grid grid-cols-4 gap-1">
+            <div className={`grid gap-1 ${rotations.length <= 4 ? 'grid-cols-4' : 'grid-cols-4'}`}>
               {rotations.map((rotation) => (
                 <button
                   key={rotation.direction}
@@ -271,7 +290,7 @@ export function SpriteRotationPanel() {
                   />
                   <div className="absolute inset-0 bg-purple-500/0 group-hover:bg-purple-500/30 transition-colors rounded flex items-center justify-center">
                     <span className="text-[8px] text-white/0 group-hover:text-white/90 uppercase font-bold">
-                      {rotation.direction.slice(0, 2)}
+                      {rotation.direction.slice(0, 3)}
                     </span>
                   </div>
                 </button>
