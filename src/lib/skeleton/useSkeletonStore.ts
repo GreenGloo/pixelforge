@@ -27,12 +27,32 @@ import {
   solveIK,
 } from './ikSolver';
 
+// Sprite part - maps a region of pixels to a bone
+export interface SpritePart {
+  id: string;
+  name: string;
+  boneId: string;
+  // Bounding box in sprite coordinates
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  // Pivot point relative to bounding box (0-1)
+  pivotX: number;
+  pivotY: number;
+}
+
 interface SkeletonStore extends SkeletonState {
   // IK State
   ikChains: IKChain[];
   ikConstraints: IKConstraint[];
   ikEnabled: boolean;
   activeIKChainId: string | null;
+
+  // Sprite rigging state
+  spriteParts: SpritePart[];
+  currentTransforms: Record<string, BoneTransform>;
+  animationEnabled: boolean;
 
   // Bone actions
   addBone: (name: string, parentId: string | null, x: number, y: number) => void;
@@ -88,6 +108,14 @@ interface SkeletonStore extends SkeletonState {
   // Helpers
   getBoneNameToIdMap: () => Map<string, string>;
 
+  // Sprite rigging actions
+  addSpritePart: (name: string, boneId: string, x: number, y: number, width: number, height: number) => void;
+  removeSpritePart: (id: string) => void;
+  updateSpritePart: (id: string, updates: Partial<SpritePart>) => void;
+  autoRigSprite: (width: number, height: number, pixels: Uint8ClampedArray) => void;
+  setCurrentTransforms: (transforms: Record<string, BoneTransform>) => void;
+  toggleAnimation: () => void;
+
   // Reset
   reset: () => void;
 }
@@ -100,6 +128,11 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   ikConstraints: [],
   ikEnabled: false,
   activeIKChainId: null,
+
+  // Sprite rigging initial state
+  spriteParts: [],
+  currentTransforms: {},
+  animationEnabled: true,
 
   // Bone actions
   addBone: (name, parentId, x, y) => {
@@ -447,8 +480,183 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
     }
   },
 
+  // Sprite rigging actions
+  addSpritePart: (name, boneId, x, y, width, height) => {
+    const part: SpritePart = {
+      id: crypto.randomUUID(),
+      name,
+      boneId,
+      x,
+      y,
+      width,
+      height,
+      pivotX: 0.5,
+      pivotY: 0.5,
+    };
+    set({ spriteParts: [...get().spriteParts, part] });
+  },
+
+  removeSpritePart: (id) => {
+    set({ spriteParts: get().spriteParts.filter(p => p.id !== id) });
+  },
+
+  updateSpritePart: (id, updates) => {
+    set({
+      spriteParts: get().spriteParts.map(p =>
+        p.id === id ? { ...p, ...updates } : p
+      ),
+    });
+  },
+
+  autoRigSprite: (width, height, pixels) => {
+    const bones = get().bones;
+    if (bones.length === 0) return;
+
+    // Build name to id map
+    const boneNameToId = new Map(bones.map(b => [b.name, b.id]));
+    const parts: SpritePart[] = [];
+
+    // Analyze sprite to find body regions based on humanoid skeleton
+    // For a typical 64x64 sprite:
+    const spriteHeight = height;
+    const spriteWidth = width;
+    const centerX = spriteWidth / 2;
+
+    // Detect actual sprite bounds by scanning for non-transparent pixels
+    let minY = spriteHeight, maxY = 0, minX = spriteWidth, maxX = 0;
+    for (let y = 0; y < spriteHeight; y++) {
+      for (let x = 0; x < spriteWidth; x++) {
+        const idx = (y * spriteWidth + x) * 4;
+        if (pixels[idx + 3] > 10) { // has some alpha
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+        }
+      }
+    }
+
+    if (maxY <= minY || maxX <= minX) return; // No pixels found
+
+    const actualHeight = maxY - minY;
+    const actualWidth = maxX - minX;
+    const actualCenterX = minX + actualWidth / 2;
+
+    // Define body part regions proportionally
+    const headHeight = actualHeight * 0.2;
+    const torsoHeight = actualHeight * 0.3;
+    const legHeight = actualHeight * 0.5;
+
+    const headBone = boneNameToId.get('head');
+    if (headBone) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Head',
+        boneId: headBone,
+        x: Math.floor(actualCenterX - actualWidth * 0.2),
+        y: minY,
+        width: Math.ceil(actualWidth * 0.4),
+        height: Math.ceil(headHeight),
+        pivotX: 0.5,
+        pivotY: 1.0,
+      });
+    }
+
+    const spineBone = boneNameToId.get('spine');
+    if (spineBone) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Torso',
+        boneId: spineBone,
+        x: Math.floor(actualCenterX - actualWidth * 0.3),
+        y: Math.floor(minY + headHeight),
+        width: Math.ceil(actualWidth * 0.6),
+        height: Math.ceil(torsoHeight),
+        pivotX: 0.5,
+        pivotY: 0.3,
+      });
+    }
+
+    // Arms
+    const armL = boneNameToId.get('upperArm_L');
+    if (armL) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Left Arm',
+        boneId: armL,
+        x: minX,
+        y: Math.floor(minY + headHeight),
+        width: Math.ceil(actualWidth * 0.2),
+        height: Math.ceil(torsoHeight * 0.8),
+        pivotX: 1.0,
+        pivotY: 0.1,
+      });
+    }
+
+    const armR = boneNameToId.get('upperArm_R');
+    if (armR) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Right Arm',
+        boneId: armR,
+        x: Math.floor(maxX - actualWidth * 0.2),
+        y: Math.floor(minY + headHeight),
+        width: Math.ceil(actualWidth * 0.2),
+        height: Math.ceil(torsoHeight * 0.8),
+        pivotX: 0.0,
+        pivotY: 0.1,
+      });
+    }
+
+    // Legs
+    const legL = boneNameToId.get('upperLeg_L');
+    if (legL) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Left Leg',
+        boneId: legL,
+        x: Math.floor(actualCenterX - actualWidth * 0.25),
+        y: Math.floor(minY + headHeight + torsoHeight),
+        width: Math.ceil(actualWidth * 0.25),
+        height: Math.ceil(legHeight),
+        pivotX: 0.5,
+        pivotY: 0.0,
+      });
+    }
+
+    const legR = boneNameToId.get('upperLeg_R');
+    if (legR) {
+      parts.push({
+        id: crypto.randomUUID(),
+        name: 'Right Leg',
+        boneId: legR,
+        x: Math.floor(actualCenterX),
+        y: Math.floor(minY + headHeight + torsoHeight),
+        width: Math.ceil(actualWidth * 0.25),
+        height: Math.ceil(legHeight),
+        pivotX: 0.5,
+        pivotY: 0.0,
+      });
+    }
+
+    set({ spriteParts: parts });
+  },
+
+  setCurrentTransforms: (transforms) => set({ currentTransforms: transforms }),
+
+  toggleAnimation: () => set({ animationEnabled: !get().animationEnabled }),
+
   // Reset
-  reset: () => set(createInitialSkeletonState()),
+  reset: () => set({
+    ...createInitialSkeletonState(),
+    ikChains: [],
+    ikConstraints: [],
+    ikEnabled: false,
+    activeIKChainId: null,
+    spriteParts: [],
+    currentTransforms: {},
+    animationEnabled: true,
+  }),
 }));
 
 // Helper function to get bone depth in hierarchy

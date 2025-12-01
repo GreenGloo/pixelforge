@@ -33,6 +33,10 @@ export function PixelCanvas() {
     selectedBoneId,
     selectBone,
     moveBone,
+    // Sprite deformation
+    spriteParts,
+    currentTransforms,
+    animationEnabled,
   } = useSkeletonStore();
 
   const {
@@ -310,6 +314,113 @@ export function PixelCanvas() {
     [width, height, zoom]
   );
 
+  // Render frame with bone deformation applied to sprite parts
+  const renderDeformedFrame = useCallback(
+    (ctx: CanvasRenderingContext2D, frameToRender: typeof frame, opacity: number) => {
+      if (!frameToRender || spriteParts.length === 0 || bones.length === 0) {
+        renderFrame(ctx, frameToRender, opacity);
+        return;
+      }
+
+      // Create a temporary canvas to extract sprite part pixels
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      const tempCtx = tempCanvas.getContext('2d')!;
+
+      // Draw all layers to temp canvas
+      for (const l of frameToRender.layers) {
+        if (!l.visible) continue;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const a = l.pixels[idx + 3];
+            if (a === 0) continue;
+            const r = l.pixels[idx];
+            const g = l.pixels[idx + 1];
+            const b = l.pixels[idx + 2];
+            tempCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${(a / 255) * l.opacity})`;
+            tempCtx.fillRect(x, y, 1, 1);
+          }
+        }
+      }
+
+      // Track which pixels have been rendered by sprite parts
+      const renderedPixels = new Set<string>();
+
+      // Render each sprite part with its bone transform
+      for (const part of spriteParts) {
+        const bone = bones.find(b => b.id === part.boneId);
+        if (!bone) continue;
+
+        const transform = currentTransforms[part.boneId];
+        if (!transform) continue;
+
+        // Get bone world position for transform origin
+        const bonePos = getBoneWorldPosition(bone, bones);
+
+        // Calculate pivot point in world coordinates
+        const pivotX = part.x + part.width * part.pivotX;
+        const pivotY = part.y + part.height * part.pivotY;
+
+        // Apply transform
+        ctx.save();
+        ctx.globalAlpha = opacity;
+
+        // Move to bone position, apply rotation, then offset
+        const rotationRad = (transform.rotation * Math.PI) / 180;
+
+        // For each pixel in this sprite part
+        for (let py = part.y; py < part.y + part.height; py++) {
+          for (let px = part.x; px < part.x + part.width; px++) {
+            if (px < 0 || px >= width || py < 0 || py >= height) continue;
+
+            // Get pixel color from temp canvas
+            const pixelData = tempCtx.getImageData(px, py, 1, 1).data;
+            if (pixelData[3] === 0) continue; // Skip transparent
+
+            // Mark as rendered
+            renderedPixels.add(`${px},${py}`);
+
+            // Calculate position relative to pivot
+            const relX = px - pivotX;
+            const relY = py - pivotY;
+
+            // Apply rotation around pivot
+            const rotatedX = relX * Math.cos(rotationRad) - relY * Math.sin(rotationRad);
+            const rotatedY = relX * Math.sin(rotationRad) + relY * Math.cos(rotationRad);
+
+            // Add back pivot and apply translation
+            const finalX = rotatedX + pivotX + transform.x;
+            const finalY = rotatedY + pivotY + transform.y;
+
+            // Draw pixel at transformed position
+            ctx.fillStyle = `rgba(${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]}, ${pixelData[3] / 255})`;
+            ctx.fillRect(finalX * zoom, finalY * zoom, zoom, zoom);
+          }
+        }
+
+        ctx.restore();
+      }
+
+      // Render any pixels not covered by sprite parts normally
+      ctx.globalAlpha = opacity;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (renderedPixels.has(`${x},${y}`)) continue;
+
+          const pixelData = tempCtx.getImageData(x, y, 1, 1).data;
+          if (pixelData[3] === 0) continue;
+
+          ctx.fillStyle = `rgba(${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]}, ${pixelData[3] / 255})`;
+          ctx.fillRect(x * zoom, y * zoom, zoom, zoom);
+        }
+      }
+      ctx.globalAlpha = 1;
+    },
+    [width, height, zoom, spriteParts, bones, currentTransforms, renderFrame]
+  );
+
   // Render canvas
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -359,7 +470,12 @@ export function PixelCanvas() {
     }
 
     // Draw current frame layers (bottom to top)
-    renderFrame(ctx, frame, 1);
+    // Use deformed rendering when animation is enabled and sprite parts exist
+    if (animationEnabled && spriteParts.length > 0 && Object.keys(currentTransforms).length > 0) {
+      renderDeformedFrame(ctx, frame, 1);
+    } else {
+      renderFrame(ctx, frame, 1);
+    }
 
     // Draw grid
     if (gridVisible && zoom >= 4) {
@@ -571,11 +687,11 @@ export function PixelCanvas() {
         ctx.fillText(chain.name, screenX, screenY - IK_TARGET_RADIUS - 6);
       }
     }
-  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection, ikEnabled, ikChains, draggingIKChainId, showBones, bones, selectedBoneId]);
+  }, [frame, frames, currentFrameIndex, width, height, zoom, gridVisible, onionSkin, renderFrame, renderDeformedFrame, maskData, showMask, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, selection, ikEnabled, ikChains, draggingIKChainId, showBones, bones, selectedBoneId, animationEnabled, spriteParts, currentTransforms]);
 
   useEffect(() => {
     render();
-  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection, ikChains, ikEnabled, bones, showBones, selectedBoneId]);
+  }, [render, frames, currentFrameIndex, currentLayerIndex, maskData, shapeStart, shapeEnd, selection, ikChains, ikEnabled, bones, showBones, selectedBoneId, currentTransforms, spriteParts, animationEnabled]);
 
   // Get pixel coordinates from mouse event
   const getPixelCoords = useCallback(

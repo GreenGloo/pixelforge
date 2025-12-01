@@ -42,13 +42,14 @@ import {
   Wand2,
   Loader2,
   Zap,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export function SkeletonPanel() {
   const { data: session } = useSession();
-  const { width, height, loadFromUrl } = useCanvasStore();
+  const { width, height, loadFromUrl, frames, currentFrameIndex } = useCanvasStore();
   const {
     bones,
     selectedBoneId,
@@ -83,6 +84,12 @@ export function SkeletonPanel() {
     updateIKTarget,
     solveIKChain,
     setupHumanoidIK,
+    // Sprite rigging
+    spriteParts,
+    autoRigSprite,
+    setCurrentTransforms: setStoreTransforms,
+    animationEnabled,
+    toggleAnimation,
   } = useSkeletonStore();
 
   const [currentTransforms, setCurrentTransforms] = useState<Record<string, BoneTransform>>({});
@@ -126,6 +133,13 @@ export function SkeletonPanel() {
     }
     setCurrentTransforms(transforms);
   }, [bones.length]);
+
+  // Sync transforms to store for canvas rendering
+  useEffect(() => {
+    if (Object.keys(currentTransforms).length > 0) {
+      setStoreTransforms(currentTransforms);
+    }
+  }, [currentTransforms, setStoreTransforms]);
 
   // Get hierarchy for tree view
   const getBoneChildren = useCallback((parentId: string | null) => {
@@ -254,6 +268,46 @@ export function SkeletonPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleQuickKeyframeSave]);
 
+  // Handle auto-rigging the sprite
+  const handleAutoRig = useCallback(() => {
+    if (bones.length === 0) {
+      toast.error('Load a skeleton first');
+      return;
+    }
+
+    const frame = frames[currentFrameIndex];
+    if (!frame || frame.layers.length === 0) {
+      toast.error('No sprite to rig');
+      return;
+    }
+
+    // Composite all visible layers into a single pixel array
+    const compositePixels = new Uint8ClampedArray(width * height * 4);
+
+    for (const layer of frame.layers) {
+      if (!layer.visible) continue;
+
+      for (let i = 0; i < layer.pixels.length; i += 4) {
+        const srcAlpha = layer.pixels[i + 3] * layer.opacity;
+        const dstAlpha = compositePixels[i + 3];
+
+        if (srcAlpha === 0) continue;
+
+        // Simple alpha compositing
+        const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha / 255);
+        if (outAlpha > 0) {
+          compositePixels[i] = (layer.pixels[i] * srcAlpha + compositePixels[i] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 1] = (layer.pixels[i + 1] * srcAlpha + compositePixels[i + 1] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 2] = (layer.pixels[i + 2] * srcAlpha + compositePixels[i + 2] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 3] = outAlpha;
+        }
+      }
+    }
+
+    autoRigSprite(width, height, compositePixels);
+    toast.success(`Auto-rigged ${spriteParts.length > 0 ? spriteParts.length : 'sprite'} parts to bones`);
+  }, [bones.length, frames, currentFrameIndex, width, height, autoRigSprite, spriteParts.length]);
+
   // Generate AI sprites from skeleton animation
   const handleGenerateFromSkeleton = async () => {
     if (!session?.user) {
@@ -376,7 +430,7 @@ export function SkeletonPanel() {
       <ScrollArea className="h-64">
         <div className="p-3 space-y-3">
           {/* Quick actions */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -384,6 +438,16 @@ export function SkeletonPanel() {
               onClick={loadHumanoidSkeleton}
             >
               <User className="w-3 h-3 mr-1" /> Humanoid
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs flex-1 bg-green-900/20 border-green-500/30 hover:bg-green-900/40"
+              onClick={handleAutoRig}
+              disabled={bones.length === 0}
+              title="Auto-map sprite parts to bones"
+            >
+              <Target className="w-3 h-3 mr-1" /> Auto-Rig
             </Button>
             <Button
               variant="outline"
