@@ -629,6 +629,8 @@ export interface AnimationResult {
  *
  * NOTE: rd-animation model ignores custom prompts and produces generic characters.
  * We use rd-plus instead to generate individual walk frames that respect the prompt.
+ * To maintain character consistency, we generate frame 1 first, then use img2img
+ * with that frame as reference for subsequent frames.
  */
 export async function generateWalkingAnimation(
   prompt: string,
@@ -668,8 +670,33 @@ export async function generateWalkingAnimation(
   const frames: string[] = [];
   const directionView = directionViews[direction] || directionViews.right;
 
-  // Generate each frame
-  for (let i = 0; i < Math.min(frameCount, walkFrames.length); i++) {
+  // Generate frame 1 first (text-to-image)
+  console.log('Generating walk frame 1/4 (base frame)...');
+  const basePrompt = `${prompt}, ${directionView}, ${walkFrames[0]}, pixel art game sprite, full body visible, centered`;
+
+  const firstFrameUrl = await generateWithRetroDiffusion({
+    prompt: basePrompt,
+    style: 'default',
+    width: 64,
+    height: 64,
+    seed: seed,
+    removeBackground: true,
+  });
+  frames.push(firstFrameUrl);
+
+  // Fetch first frame and convert to base64 for img2img
+  let baseImageBase64: string | null = null;
+  try {
+    const response = await fetch(firstFrameUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    baseImageBase64 = Buffer.from(arrayBuffer).toString('base64');
+    console.log('Base frame fetched for img2img reference');
+  } catch (error) {
+    console.error('Failed to fetch base frame for img2img, falling back to text-only:', error);
+  }
+
+  // Generate remaining frames using img2img with base frame as reference
+  for (let i = 1; i < Math.min(frameCount, walkFrames.length); i++) {
     console.log(`Generating walk frame ${i + 1}/${frameCount}...`);
 
     const framePrompt = `${prompt}, ${directionView}, ${walkFrames[i]}, pixel art game sprite, full body visible, centered`;
@@ -679,8 +706,11 @@ export async function generateWalkingAnimation(
       style: 'default',
       width: 64,
       height: 64,
-      seed: seed,  // Same seed for all frames to keep character consistent
+      seed: seed,
       removeBackground: true,
+      // Use base frame as reference if available (img2img)
+      inputImage: baseImageBase64 || undefined,
+      strength: baseImageBase64 ? 0.6 : undefined, // Lower strength = more like original
     });
 
     frames.push(imageUrl);
@@ -781,8 +811,33 @@ export async function generateAnimationFrames(
     seed,
   });
 
-  // Generate each frame with the same seed for consistency
-  for (let i = 0; i < Math.min(frameCount, frameDescriptions.length); i++) {
+  // Generate frame 1 first (text-to-image) as the base character
+  console.log(`Generating ${motionType} frame 1/${frameCount} (base frame)...`);
+  const basePrompt = `${directionView}, ${prompt}, ${frameDescriptions[0]}, pixel art game sprite, full body visible, centered`;
+
+  const firstFrameUrl = await generateWithRetroDiffusion({
+    prompt: basePrompt,
+    style: 'default',
+    width,
+    height,
+    seed: seed,
+    removeBackground: true,
+  });
+  frames.push(firstFrameUrl);
+
+  // Fetch first frame and convert to base64 for img2img
+  let baseImageBase64: string | null = null;
+  try {
+    const response = await fetch(firstFrameUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    baseImageBase64 = Buffer.from(arrayBuffer).toString('base64');
+    console.log('Base frame fetched for img2img reference');
+  } catch (error) {
+    console.error('Failed to fetch base frame for img2img, falling back to text-only:', error);
+  }
+
+  // Generate remaining frames using img2img with base frame as reference
+  for (let i = 1; i < Math.min(frameCount, frameDescriptions.length); i++) {
     console.log(`Generating ${motionType} frame ${i + 1}/${frameCount}...`);
 
     // Put direction FIRST for emphasis, then character, then frame action
@@ -793,8 +848,11 @@ export async function generateAnimationFrames(
       style: 'default',
       width,
       height,
-      seed: seed,  // Same seed for all frames to keep character consistent
+      seed: seed,
       removeBackground: true,
+      // Use base frame as reference if available (img2img)
+      inputImage: baseImageBase64 || undefined,
+      strength: baseImageBase64 ? 0.6 : undefined, // Lower strength = more like original
     });
 
     frames.push(frameUrl);
