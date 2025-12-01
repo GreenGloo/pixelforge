@@ -475,25 +475,37 @@ export async function generateCharacterTurnaround(
     characterDescription?: string;
     width?: number;
     height?: number;
+    rotationCount?: 4 | 8;
   }
 ): Promise<SpriteRotationsResult> {
   const description = options?.characterDescription || 'pixel art character sprite';
   const spriteWidth = options?.width || 64;
   const spriteHeight = options?.height || 64;
+  const rotationCount = options?.rotationCount || 4;
 
   console.log('Generating character rotations with Retro Diffusion...');
   console.log('Character description:', description);
+  console.log('Rotation count:', rotationCount);
 
   // Use same seed for all rotations to maintain consistency
   const baseSeed = Math.floor(Math.random() * 2147483647);
 
-  // Direction-specific prompts
-  const directions = [
+  // Direction-specific prompts - 4-way cardinal directions
+  const cardinalDirections = [
     { name: 'front', prompt: `${description}, front view, facing camera, pixel art game sprite, full body visible, centered` },
+    { name: 'front-right', prompt: `${description}, three-quarter view facing front-right, diagonal angle, pixel art game sprite, full body visible, centered` },
     { name: 'right', prompt: `${description}, right side view, profile facing right, pixel art game sprite, full body visible, centered` },
+    { name: 'back-right', prompt: `${description}, three-quarter back view facing back-right, diagonal angle from behind, pixel art game sprite, full body visible, centered` },
     { name: 'back', prompt: `${description}, back view, facing away from camera, pixel art game sprite, full body visible, centered` },
+    { name: 'back-left', prompt: `${description}, three-quarter back view facing back-left, diagonal angle from behind, pixel art game sprite, full body visible, centered` },
     { name: 'left', prompt: `${description}, left side view, profile facing left, pixel art game sprite, full body visible, centered` },
+    { name: 'front-left', prompt: `${description}, three-quarter view facing front-left, diagonal angle, pixel art game sprite, full body visible, centered` },
   ];
+
+  // Select directions based on rotation count
+  const directions = rotationCount === 8
+    ? cardinalDirections
+    : cardinalDirections.filter(d => ['front', 'right', 'back', 'left'].includes(d.name));
 
   const rotations: Array<{ direction: string; imageUrl: string }> = [];
 
@@ -710,7 +722,7 @@ export async function generateWalkingAnimation(
       removeBackground: true,
       // Use base frame as reference if available (img2img)
       inputImage: baseImageBase64 || undefined,
-      strength: baseImageBase64 ? 0.6 : undefined, // Lower strength = more like original
+      strength: baseImageBase64 ? 0.45 : undefined, // Lower strength = better character consistency
     });
 
     frames.push(imageUrl);
@@ -852,7 +864,7 @@ export async function generateAnimationFrames(
       removeBackground: true,
       // Use base frame as reference if available (img2img)
       inputImage: baseImageBase64 || undefined,
-      strength: baseImageBase64 ? 0.6 : undefined, // Lower strength = more like original
+      strength: baseImageBase64 ? 0.45 : undefined, // Lower strength = better character consistency
     });
 
     frames.push(frameUrl);

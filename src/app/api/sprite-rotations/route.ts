@@ -35,7 +35,11 @@ export async function POST(req: NextRequest) {
       characterDescription = '',
       width = 64,
       height = 64,
+      rotationCount = 4,
     } = body;
+
+    // Validate rotation count
+    const validRotationCount = rotationCount === 8 ? 8 : 4;
 
     // Character description is REQUIRED for text-only generation
     if (!characterDescription.trim()) {
@@ -45,8 +49,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check user credits (4 credits for 4 individual rotations)
-    const creditCost = 4;
+    // Check user credits (1 credit per rotation)
+    const creditCost = validRotationCount;
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { credits: true },
@@ -61,6 +65,7 @@ export async function POST(req: NextRequest) {
 
     console.log('Starting sprite rotation generation with Retro Diffusion...');
     console.log('Character description:', characterDescription);
+    console.log('Rotation count:', validRotationCount);
 
     // Use Retro Diffusion for authentic pixel art rotations
     // Text-only generation with character_turnaround style for consistency
@@ -68,6 +73,7 @@ export async function POST(req: NextRequest) {
       characterDescription,
       width,
       height,
+      rotationCount: validRotationCount as 4 | 8,
     });
 
     // Deduct credits

@@ -221,6 +221,11 @@ export function TilesetPanel() {
       <div className="flex items-center gap-2 p-3 border-b border-[#2a2a4e]">
         <Grid3X3 className="w-4 h-4 text-green-400" />
         <span className="font-semibold text-sm">Tileset Generator</span>
+        {session?.user && (
+          <span className="ml-auto text-xs text-gray-400">
+            {session.user.credits} credits
+          </span>
+        )}
       </div>
 
       <div className="p-3 space-y-3">

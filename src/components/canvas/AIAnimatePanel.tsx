@@ -12,7 +12,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, Play, Pause, Download } from 'lucide-react';
+import { Loader2, Sparkles, Play, Pause, Download, FileImage, Film, Archive } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const MOTION_TYPES = [
   { value: 'walk', label: 'Walk Cycle' },
@@ -182,8 +188,8 @@ export function AIAnimatePanel() {
     }
   };
 
-  const handleDownload = useCallback(async () => {
-    // If we have individual frame images, create a sprite sheet
+  // Download as horizontal sprite sheet
+  const handleDownloadSpriteSheet = useCallback(async () => {
     if (frameImages.length > 0) {
       const firstFrame = frameImages[0];
       const canvas = document.createElement('canvas');
@@ -223,6 +229,82 @@ export function AIAnimatePanel() {
       }
     }
   }, [frameImages, spriteSheetUrl, motionType, frameCount]);
+
+  // Download individual frames as separate PNGs
+  const handleDownloadFrames = useCallback(() => {
+    if (frameImages.length === 0) {
+      toast.error('No frames to download');
+      return;
+    }
+
+    frameImages.forEach((img, i) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0);
+        const link = document.createElement('a');
+        link.download = `${motionType}-frame-${i + 1}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }
+    });
+    toast.success(`Downloaded ${frameImages.length} frames!`);
+  }, [frameImages, motionType]);
+
+  // Download as animated GIF
+  const handleDownloadGif = useCallback(async () => {
+    if (frameImages.length === 0) {
+      toast.error('No frames to export');
+      return;
+    }
+
+    toast.info('Creating GIF...', { duration: 2000 });
+
+    try {
+      // Dynamic import of gif.js for client-side GIF creation
+      const GIF = (await import('gif.js')).default;
+
+      const firstFrame = frameImages[0];
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: firstFrame.width,
+        height: firstFrame.height,
+        workerScript: '/gif.worker.js',
+      });
+
+      // Add each frame to the GIF
+      frameImages.forEach((img) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = firstFrame.width;
+        canvas.height = firstFrame.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(img, 0, 0);
+          gif.addFrame(canvas, { delay: Math.round(1000 / fps), copy: true });
+        }
+      });
+
+      gif.on('finished', (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `${motionType}-animation.gif`;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+        toast.success('GIF downloaded!');
+      });
+
+      gif.render();
+    } catch {
+      // Fallback if gif.js is not available - create a simple APNG-like sequence message
+      toast.error('GIF export requires gif.js library. Use sprite sheet instead.');
+    }
+  }, [frameImages, motionType, fps]);
 
   const selectFrame = (index: number) => {
     setCurrentFrameIndex(index);
@@ -395,16 +477,29 @@ export function AIAnimatePanel() {
               </div>
             )}
 
-            {/* Download button */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={handleDownload}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download Sprite Sheet
-            </Button>
+            {/* Download options */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="w-full">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export Animation
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={handleDownloadSpriteSheet}>
+                  <FileImage className="w-4 h-4 mr-2" />
+                  Sprite Sheet (PNG)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadFrames}>
+                  <Archive className="w-4 h-4 mr-2" />
+                  Individual Frames
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadGif}>
+                  <Film className="w-4 h-4 mr-2" />
+                  Animated GIF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
 
