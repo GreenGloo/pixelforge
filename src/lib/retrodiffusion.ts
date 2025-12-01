@@ -705,6 +705,7 @@ export async function generateAnimationFrames(
   prompt: string,
   options?: {
     motionType?: 'idle' | 'walk' | 'run' | 'attack' | 'jump';
+    direction?: 'front' | 'right' | 'back' | 'left';
     frameCount?: number;
     width?: number;
     height?: number;
@@ -718,11 +719,22 @@ export async function generateAnimationFrames(
 
   const {
     motionType = 'idle',
+    direction = 'right',
     frameCount = 4,
     width = 64,
     height = 64,
     seed = Math.floor(Math.random() * 2147483647),
   } = options || {};
+
+  // Direction view descriptions
+  const directionViews: Record<string, string> = {
+    front: 'front view, facing camera',
+    right: 'side view, profile facing right',
+    back: 'back view, facing away',
+    left: 'side view, profile facing left',
+  };
+
+  const directionView = directionViews[direction] || directionViews.right;
 
   // Motion frame descriptions for each type
   const motionFrames: Record<string, string[]> = {
@@ -761,11 +773,20 @@ export async function generateAnimationFrames(
   const frameDescriptions = motionFrames[motionType] || motionFrames.idle;
   const frames: string[] = [];
 
+  console.log('Generating animation frames with rd-plus:', {
+    prompt,
+    motionType,
+    direction,
+    frameCount,
+    seed,
+  });
+
   // Generate each frame with the same seed for consistency
   for (let i = 0; i < Math.min(frameCount, frameDescriptions.length); i++) {
-    console.log(`Generating frame ${i + 1}/${frameCount}...`);
+    console.log(`Generating ${motionType} frame ${i + 1}/${frameCount}...`);
 
-    const framePrompt = `${prompt}, ${frameDescriptions[i]}, pixel art sprite animation frame`;
+    // Put direction FIRST for emphasis, then character, then frame action
+    const framePrompt = `${directionView}, ${prompt}, ${frameDescriptions[i]}, pixel art game sprite, full body visible, centered`;
 
     const frameUrl = await generateWithRetroDiffusion({
       prompt: framePrompt,

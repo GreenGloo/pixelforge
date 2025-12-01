@@ -65,14 +65,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Direction mapping for prompt enhancement
-    const directionPrompts: Record<string, string> = {
-      right: 'side view facing right',
-      left: 'side view facing left',
-      down: 'front view facing camera',
-      up: 'back view facing away',
-    };
-
     console.log('Generating animation with Retro Diffusion:', {
       prompt,
       motionType,
@@ -108,12 +100,18 @@ export async function POST(request: Request) {
       directions = walkResult.directions;
     } else {
       // Use rd-plus for other animation types (generates individual frames)
-      // Include direction in the prompt for non-walk animations
-      const directionDesc = directionPrompts[direction] || directionPrompts.right;
-      const enhancedPrompt = `${prompt}, ${directionDesc}`;
+      // Map direction values to the function's expected format
+      const directionMap: Record<string, 'front' | 'right' | 'back' | 'left'> = {
+        down: 'front',
+        right: 'right',
+        up: 'back',
+        left: 'left',
+      };
+      const animDirection = directionMap[direction] || 'right';
 
-      const framesResult = await generateAnimationFrames(enhancedPrompt, {
+      const framesResult = await generateAnimationFrames(prompt, {
         motionType: motionType as 'idle' | 'walk' | 'run' | 'attack' | 'jump',
+        direction: animDirection,
         frameCount: Math.min(numFrames, 4),
         width: 64,
         height: 64,
