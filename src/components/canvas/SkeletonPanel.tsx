@@ -41,6 +41,7 @@ import {
   Sparkles,
   Wand2,
   Loader2,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -110,6 +111,9 @@ export function SkeletonPanel() {
 
   // IK state
   const [isIKExpanded, setIsIKExpanded] = useState(false);
+
+  // Quick keyframe save feedback
+  const [keyframeSaved, setKeyframeSaved] = useState(false);
 
   const selectedBone = bones.find(b => b.id === selectedBoneId);
   const currentAnimation = animations.find(a => a.id === currentAnimationId);
@@ -212,6 +216,43 @@ export function SkeletonPanel() {
     setShowKeyframeDialog(false);
     toast.success(`Keyframe added at ${newKeyframeTime}ms`);
   };
+
+  // Quick keyframe save at current time
+  const handleQuickKeyframeSave = useCallback(() => {
+    if (!currentAnimationId) {
+      toast.error('Select an animation first');
+      return;
+    }
+    const time = Math.round(animationTime);
+    addKeyframe(currentAnimationId, time, currentTransforms);
+
+    // Visual feedback
+    setKeyframeSaved(true);
+    setTimeout(() => setKeyframeSaved(false), 300);
+
+    toast.success(`Keyframe saved at ${time}ms`, {
+      icon: '⚡',
+      duration: 1500,
+    });
+  }, [currentAnimationId, animationTime, currentTransforms, addKeyframe]);
+
+  // Keyboard shortcut for quick keyframe save (K key)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if not in input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        handleQuickKeyframeSave();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleQuickKeyframeSave]);
 
   // Generate AI sprites from skeleton animation
   const handleGenerateFromSkeleton = async () => {
@@ -647,15 +688,34 @@ export function SkeletonPanel() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className={cn(
+                        "h-6 text-xs transition-all duration-150",
+                        keyframeSaved && "bg-yellow-500/50 border-yellow-400"
+                      )}
+                      onClick={handleQuickKeyframeSave}
+                      title="Quick save keyframe at current time (K)"
+                    >
+                      <Zap className={cn(
+                        "w-3 h-3 mr-1",
+                        keyframeSaved && "text-yellow-300"
+                      )} />
+                      Save Now
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="h-6 text-xs flex-1"
                       onClick={() => {
                         setNewKeyframeTime(Math.round(animationTime));
                         setShowKeyframeDialog(true);
                       }}
                     >
-                      <Plus className="w-3 h-3 mr-1" /> Add Keyframe
+                      <Plus className="w-3 h-3 mr-1" /> At Time...
                     </Button>
                   </div>
+                  <p className="text-[9px] text-gray-600">
+                    Press K to quick save keyframe at current time
+                  </p>
 
                   {/* Keyframe list */}
                   {currentAnimation.keyframes.length > 0 && (
