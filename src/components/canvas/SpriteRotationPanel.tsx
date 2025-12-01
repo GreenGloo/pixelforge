@@ -16,84 +16,6 @@ interface Rotation {
   imageUrl: string;
 }
 
-interface SpriteSheetResponse {
-  url: string;
-  spriteWidth: number;
-  spriteHeight: number;
-  columns: number;
-  directions: string[];
-}
-
-// Direction labels for different column counts
-const DIRECTION_LABELS: Record<number, string[]> = {
-  4: ['front', 'right', 'back', 'left'],
-  8: ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'],
-};
-
-// Split a sprite sheet into individual frames using canvas
-async function splitSpriteSheet(spriteSheet: SpriteSheetResponse): Promise<Rotation[]> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    img.onload = () => {
-      const rotations: Rotation[] = [];
-
-      // Auto-detect columns if not specified (columns === -1)
-      // Assume square sprites, so columns = width / height
-      let columns = spriteSheet.columns;
-      if (columns <= 0) {
-        columns = Math.round(img.width / img.height);
-        // Clamp to reasonable values (4 or 8)
-        if (columns < 4) columns = 4;
-        if (columns > 8) columns = 8;
-        // Round to nearest of 4 or 8
-        columns = columns <= 6 ? 4 : 8;
-      }
-
-      const directions = DIRECTION_LABELS[columns] || DIRECTION_LABELS[4];
-      const spriteWidth = img.width / columns;
-      const spriteHeight = img.height;
-
-      console.log(`Splitting sprite sheet: ${img.width}x${img.height}, detected ${columns} columns`);
-
-      for (let i = 0; i < columns; i++) {
-        const canvas = document.createElement('canvas');
-        canvas.width = spriteWidth;
-        canvas.height = spriteHeight;
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) {
-          reject(new Error('Failed to get canvas context'));
-          return;
-        }
-
-        // Draw the portion of the sprite sheet for this frame
-        ctx.drawImage(
-          img,
-          i * spriteWidth, 0,  // Source x, y
-          spriteWidth, spriteHeight,  // Source width, height
-          0, 0,  // Dest x, y
-          spriteWidth, spriteHeight   // Dest width, height
-        );
-
-        rotations.push({
-          direction: directions[i] || `rotation_${i}`,
-          imageUrl: canvas.toDataURL('image/png'),
-        });
-      }
-
-      resolve(rotations);
-    };
-
-    img.onerror = () => {
-      reject(new Error('Failed to load sprite sheet image'));
-    };
-
-    img.src = spriteSheet.url;
-  });
-}
-
 export function SpriteRotationPanel() {
   const { data: session } = useSession();
   const { loadFromUrl } = useCanvasStore();
@@ -102,10 +24,9 @@ export function SpriteRotationPanel() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rotations, setRotations] = useState<Rotation[]>([]);
-  const [spriteSheetUrl, setSpriteSheetUrl] = useState<string | null>(null);
 
-  // 1 credit for sprite sheet generation (single API call)
-  const creditCost = 1;
+  // 4 credits for 4 individual rotations
+  const creditCost = 4;
 
   const handleGenerate = async () => {
     if (!session?.user) {
@@ -121,7 +42,6 @@ export function SpriteRotationPanel() {
     setIsGenerating(true);
     setError(null);
     setRotations([]);
-    setSpriteSheetUrl(null);
 
     try {
       const response = await fetch('/api/sprite-rotations', {
@@ -138,12 +58,8 @@ export function SpriteRotationPanel() {
         throw new Error(result.error || 'Generation failed');
       }
 
-      // Store the sprite sheet URL for download
-      setSpriteSheetUrl(result.spriteSheet.url);
-
-      // Split the sprite sheet into individual rotations
-      const splitRotations = await splitSpriteSheet(result.spriteSheet);
-      setRotations(splitRotations);
+      // Set the rotations directly from API response
+      setRotations(result.rotations);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
     } finally {
@@ -155,41 +71,20 @@ export function SpriteRotationPanel() {
     await loadFromUrl(imageUrl);
   };
 
-  const handleDownloadSpritesheet = async () => {
-    if (!spriteSheetUrl && rotations.length === 0) return;
-
-    // If we have the original sprite sheet URL, fetch and download as blob
-    if (spriteSheetUrl) {
-      try {
-        const response = await fetch(spriteSheetUrl);
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.download = `sprite-rotations-${rotations.length}dir.png`;
-        link.href = blobUrl;
-        link.click();
-        URL.revokeObjectURL(blobUrl);
-      } catch {
-        // Fallback: use canvas method if fetch fails (CORS)
-        downloadFromRotations();
-      }
-      return;
-    }
-
-    downloadFromRotations();
-  };
-
-  const downloadFromRotations = () => {
+  const handleDownloadSpritesheet = () => {
     if (rotations.length === 0) return;
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const spriteSize = img.width;
+    // Load first image to get dimensions
+    const firstImg = new Image();
+    firstImg.crossOrigin = 'anonymous';
+    firstImg.onload = () => {
+      const spriteWidth = firstImg.width;
+      const spriteHeight = firstImg.height;
       const cols = rotations.length;
+
       const canvas = document.createElement('canvas');
-      canvas.width = spriteSize * cols;
-      canvas.height = img.height;
+      canvas.width = spriteWidth * cols;
+      canvas.height = spriteHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -199,7 +94,7 @@ export function SpriteRotationPanel() {
         const rotImg = new Image();
         rotImg.crossOrigin = 'anonymous';
         rotImg.onload = () => {
-          ctx.drawImage(rotImg, i * spriteSize, 0, spriteSize, img.height);
+          ctx.drawImage(rotImg, i * spriteWidth, 0, spriteWidth, spriteHeight);
           loaded++;
           if (loaded === rotations.length) {
             const link = document.createElement('a');
@@ -211,7 +106,7 @@ export function SpriteRotationPanel() {
         rotImg.src = rotation.imageUrl;
       });
     };
-    img.src = rotations[0].imageUrl;
+    firstImg.src = rotations[0].imageUrl;
   };
 
   return (

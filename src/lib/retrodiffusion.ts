@@ -455,22 +455,19 @@ async function generateWithRetroDiffusion(params: {
   return toImageUrl(output);
 }
 
-export interface SpriteSheetResult {
-  spriteSheetUrl: string;
-  spriteWidth: number;
-  spriteHeight: number;
-  columns: number;  // Number of sprites horizontally (auto-detected)
+export interface SpriteRotationsResult {
+  rotations: Array<{
+    direction: string;
+    imageUrl: string;
+  }>;
 }
 
 /**
- * Generate a character turnaround using Retro Diffusion's character_turnaround style
+ * Generate character rotations by creating 4 separate images with direction-specific prompts
  *
- * IMPORTANT: character_turnaround style works best with TEXT-ONLY generation.
- * Using img2img with this style produces inconsistent results because the model
- * doesn't understand that all 4 views should look like the input image.
- *
- * This function generates a sprite sheet with rotations from a text description.
- * The model determines the number of views (typically 4 or 8).
+ * The character_turnaround style doesn't respect custom prompts, so we generate
+ * 4 individual sprites with the user's description + direction modifiers.
+ * Using the same seed ensures visual consistency across rotations.
  */
 export async function generateCharacterTurnaround(
   sourceImage: string | null,
@@ -479,35 +476,54 @@ export async function generateCharacterTurnaround(
     width?: number;
     height?: number;
   }
-): Promise<SpriteSheetResult> {
+): Promise<SpriteRotationsResult> {
   const description = options?.characterDescription || 'pixel art character sprite';
+  const spriteWidth = options?.width || 64;
   const spriteHeight = options?.height || 64;
 
-  console.log('Generating character turnaround with Retro Diffusion...');
+  console.log('Generating character rotations with Retro Diffusion...');
   console.log('Character description:', description);
 
-  // Build a detailed prompt for consistent character turnaround
-  const turnaroundPrompt = `${description}, character sprite sheet, pixel art game sprite, full body visible, consistent character design, same outfit and colors from all angles`;
+  // Use same seed for all rotations to maintain consistency
+  const baseSeed = Math.floor(Math.random() * 2147483647);
 
-  // Generate the turnaround sprite sheet using character_turnaround style
-  // Let the model decide the output dimensions for best results
-  const turnaroundUrl = await generateWithRetroDiffusion({
-    prompt: turnaroundPrompt,
-    style: 'character_turnaround',
-    // Don't force width - let model output its natural format
-    height: spriteHeight,
-    removeBackground: true,
-  });
+  // Direction-specific prompts
+  const directions = [
+    { name: 'front', prompt: `${description}, front view, facing camera, pixel art game sprite, full body visible, centered` },
+    { name: 'right', prompt: `${description}, right side view, profile facing right, pixel art game sprite, full body visible, centered` },
+    { name: 'back', prompt: `${description}, back view, facing away from camera, pixel art game sprite, full body visible, centered` },
+    { name: 'left', prompt: `${description}, left side view, profile facing left, pixel art game sprite, full body visible, centered` },
+  ];
 
-  console.log('Generated turnaround sprite sheet:', turnaroundUrl?.substring?.(0, 100) || turnaroundUrl);
+  const rotations: Array<{ direction: string; imageUrl: string }> = [];
 
-  // Return with columns=-1 to signal frontend should auto-detect from image
-  return {
-    spriteSheetUrl: turnaroundUrl,
-    spriteWidth: -1,  // Will be calculated from actual image
-    spriteHeight,
-    columns: -1,  // Frontend will auto-detect based on image aspect ratio
-  };
+  // Generate each rotation
+  for (let i = 0; i < directions.length; i++) {
+    const dir = directions[i];
+    console.log(`Generating ${dir.name} view...`);
+
+    try {
+      const imageUrl = await generateWithRetroDiffusion({
+        prompt: dir.prompt,
+        style: 'default',  // Use default style to respect the prompt
+        width: spriteWidth,
+        height: spriteHeight,
+        seed: baseSeed + i,  // Slight seed variation for each angle
+        removeBackground: true,
+      });
+
+      rotations.push({
+        direction: dir.name,
+        imageUrl,
+      });
+      console.log(`${dir.name} view generated successfully`);
+    } catch (error) {
+      console.error(`Failed to generate ${dir.name} view:`, error);
+      throw error;
+    }
+  }
+
+  return { rotations };
 }
 
 /**

@@ -45,8 +45,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check user credits (1 credit for sprite sheet generation)
-    const creditCost = 1;
+    // Check user credits (4 credits for 4 individual rotations)
+    const creditCost = 4;
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { credits: true },
@@ -82,30 +82,22 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         prompt: characterDescription || 'sprite rotation',
         style: 'ROTATION',
-        width: width * 4,  // Sprite sheet is 4x wide
+        width: width,
         height: height,
         status: 'COMPLETED',
-        imageUrl: result.spriteSheetUrl,
+        imageUrl: result.rotations[0]?.imageUrl || '',
         cost: creditCost,
         metadata: JSON.stringify({
           type: 'sprite_rotation',
-          method: 'retro_diffusion_turnaround',
-          spriteWidth: result.spriteWidth,
-          spriteHeight: result.spriteHeight,
-          columns: result.columns,
+          method: 'retro_diffusion_individual',
+          rotationCount: result.rotations.length,
         }),
       },
     });
 
     return NextResponse.json({
       success: true,
-      spriteSheet: {
-        url: result.spriteSheetUrl,
-        spriteWidth: result.spriteWidth,
-        spriteHeight: result.spriteHeight,
-        columns: result.columns,
-        directions: ['front', 'right', 'back', 'left'],
-      },
+      rotations: result.rotations,
       creditsUsed: creditCost,
       creditsRemaining: user.credits - creditCost,
     });
