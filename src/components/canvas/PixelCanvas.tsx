@@ -18,6 +18,9 @@ export function PixelCanvas() {
   const [moveOffset, setMoveOffset] = useState<{ x: number; y: number } | null>(null);
   // For IK target dragging
   const [draggingIKChainId, setDraggingIKChainId] = useState<string | null>(null);
+  // For bone dragging
+  const [draggingBoneId, setDraggingBoneId] = useState<string | null>(null);
+  const [boneDragStart, setBoneDragStart] = useState<{ x: number; y: number } | null>(null);
 
   // Get skeleton state from skeleton store
   const {
@@ -28,6 +31,8 @@ export function PixelCanvas() {
     updateIKTarget,
     setActiveIKChain,
     selectedBoneId,
+    selectBone,
+    moveBone,
   } = useSkeletonStore();
 
   const {
@@ -626,19 +631,58 @@ export function PixelCanvas() {
     [ikEnabled, ikChains, zoom]
   );
 
+  // Check if a click hits a bone joint
+  const getBoneAtPosition = useCallback(
+    (x: number, y: number): string | null => {
+      if (!showBones || bones.length === 0) return null;
+
+      const BONE_HIT_RADIUS = Math.max(5, zoom * 0.5) / zoom; // Convert to pixel space
+
+      // Check bones in reverse order (later bones on top)
+      for (let i = bones.length - 1; i >= 0; i--) {
+        const bone = bones[i];
+        const pos = getBoneWorldPosition(bone, bones);
+
+        const dx = x - pos.x;
+        const dy = y - pos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= BONE_HIT_RADIUS) {
+          return bone.id;
+        }
+      }
+      return null;
+    },
+    [showBones, bones, zoom]
+  );
+
   // Handle mouse down
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvasCoords = getCanvasCoords(e);
+
       // Check for IK target click first (when IK is enabled)
-      if (ikEnabled) {
-        const canvasCoords = getCanvasCoords(e);
-        if (canvasCoords) {
-          const ikChainId = getIKTargetAtPosition(canvasCoords.x, canvasCoords.y);
-          if (ikChainId) {
-            setDraggingIKChainId(ikChainId);
-            setActiveIKChain(ikChainId);
-            return; // Don't process as regular drawing
+      if (ikEnabled && canvasCoords) {
+        const ikChainId = getIKTargetAtPosition(canvasCoords.x, canvasCoords.y);
+        if (ikChainId) {
+          setDraggingIKChainId(ikChainId);
+          setActiveIKChain(ikChainId);
+          return; // Don't process as regular drawing
+        }
+      }
+
+      // Check for bone click (when bones are visible)
+      if (showBones && canvasCoords) {
+        const boneId = getBoneAtPosition(canvasCoords.x, canvasCoords.y);
+        if (boneId) {
+          selectBone(boneId);
+          setDraggingBoneId(boneId);
+          // Store the bone's current position for delta calculation
+          const bone = bones.find(b => b.id === boneId);
+          if (bone) {
+            setBoneDragStart({ x: bone.x, y: bone.y });
           }
+          return; // Don't process as regular drawing
         }
       }
 
@@ -730,6 +774,10 @@ export function PixelCanvas() {
       setSelection,
       copySelection,
       getCompositePixelColor,
+      showBones,
+      getBoneAtPosition,
+      selectBone,
+      bones,
     ]
   );
 
@@ -741,6 +789,23 @@ export function PixelCanvas() {
         const canvasCoords = getCanvasCoords(e);
         if (canvasCoords) {
           updateIKTarget(draggingIKChainId, canvasCoords.x, canvasCoords.y);
+        }
+        return;
+      }
+
+      // Handle bone dragging
+      if (draggingBoneId && boneDragStart) {
+        const canvasCoords = getCanvasCoords(e);
+        if (canvasCoords) {
+          const bone = bones.find(b => b.id === draggingBoneId);
+          if (bone) {
+            // Calculate new position based on world coordinates
+            const bonePos = getBoneWorldPosition(bone, bones);
+            // Use delta from initial click position
+            const deltaX = canvasCoords.x - bonePos.x;
+            const deltaY = canvasCoords.y - bonePos.y;
+            moveBone(draggingBoneId, bone.x + deltaX, bone.y + deltaY);
+          }
         }
         return;
       }
@@ -800,7 +865,7 @@ export function PixelCanvas() {
           break;
       }
     },
-    [isDrawing, lastPos, getPixelCoords, getCanvasCoords, draggingIKChainId, updateIKTarget, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool, moveOffset, selection, setSelection]
+    [isDrawing, lastPos, getPixelCoords, getCanvasCoords, draggingIKChainId, updateIKTarget, draggingBoneId, boneDragStart, bones, moveBone, tool, primaryColor, secondaryColor, setPixels, getLinePixels, getMaskLinePixels, setMaskPixels, maskTool, moveOffset, selection, setSelection]
   );
 
   // Handle mouse up
@@ -808,6 +873,13 @@ export function PixelCanvas() {
     // Stop IK target dragging
     if (draggingIKChainId) {
       setDraggingIKChainId(null);
+      return;
+    }
+
+    // Stop bone dragging
+    if (draggingBoneId) {
+      setDraggingBoneId(null);
+      setBoneDragStart(null);
       return;
     }
 
@@ -858,13 +930,18 @@ export function PixelCanvas() {
     setShapeStart(null);
     setShapeEnd(null);
     setMoveOffset(null);
-  }, [draggingIKChainId, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
+  }, [draggingIKChainId, draggingBoneId, tool, shapeStart, shapeEnd, primaryColor, shapeFilled, getLinePixels, getRectanglePixels, getEllipsePixels, setPixels, setSelection, moveOffset, selection, pasteSelection, commitHistory]);
 
   // Handle mouse leave - don't stop drawing for continuous tools
   const handleMouseLeave = useCallback(() => {
     // Stop IK dragging on leave
     if (draggingIKChainId) {
       setDraggingIKChainId(null);
+    }
+    // Stop bone dragging on leave
+    if (draggingBoneId) {
+      setDraggingBoneId(null);
+      setBoneDragStart(null);
     }
     // For shape tools, reset the preview but keep drawing state
     // For continuous tools (pencil, eraser, mask), keep drawing state
@@ -881,7 +958,7 @@ export function PixelCanvas() {
     // For pencil, eraser, mask - keep isDrawing true, just clear lastPos
     // so the next stroke starts fresh when mouse re-enters
     setLastPos(null);
-  }, [draggingIKChainId, tool]);
+  }, [draggingIKChainId, draggingBoneId, tool]);
 
   // Global mouseup listener to stop drawing when mouse released outside canvas
   useEffect(() => {
@@ -902,6 +979,19 @@ export function PixelCanvas() {
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDrawing, tool, commitHistory]);
+
+  // Global mouseup listener for bone dragging
+  useEffect(() => {
+    if (!draggingBoneId) return;
+
+    const handleGlobalMouseUp = () => {
+      setDraggingBoneId(null);
+      setBoneDragStart(null);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [draggingBoneId]);
 
   // Global mouseup listener for IK target dragging
   useEffect(() => {
