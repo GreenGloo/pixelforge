@@ -470,8 +470,12 @@ export function PixelCanvas() {
     }
 
     // Draw current frame layers (bottom to top)
-    // Use deformed rendering when animation is enabled and sprite parts exist
-    if (animationEnabled && spriteParts.length > 0 && Object.keys(currentTransforms).length > 0) {
+    // Use deformed rendering only when actively animating with non-default transforms
+    const hasNonDefaultTransforms = Object.values(currentTransforms).some(
+      t => t.rotation !== 0 || t.x !== 0 || t.y !== 0
+    );
+
+    if (animationEnabled && spriteParts.length > 0 && hasNonDefaultTransforms) {
       renderDeformedFrame(ctx, frame, 1);
     } else {
       renderFrame(ctx, frame, 1);
