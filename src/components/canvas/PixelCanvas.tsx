@@ -470,16 +470,10 @@ export function PixelCanvas() {
     }
 
     // Draw current frame layers (bottom to top)
-    // Use deformed rendering only when actively animating with non-default transforms
-    const hasNonDefaultTransforms = Object.values(currentTransforms).some(
-      t => t.rotation !== 0 || t.x !== 0 || t.y !== 0
-    );
-
-    if (animationEnabled && spriteParts.length > 0 && hasNonDefaultTransforms) {
-      renderDeformedFrame(ctx, frame, 1);
-    } else {
-      renderFrame(ctx, frame, 1);
-    }
+    // Note: Sprite deformation is disabled - rectangular regions don't work well
+    // with pixel art. The skeleton is for visualization/planning only.
+    // For actual animation, use separate sprite frames.
+    renderFrame(ctx, frame, 1);
 
     // Draw grid
     if (gridVisible && zoom >= 4) {
