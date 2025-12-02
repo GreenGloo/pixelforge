@@ -17,6 +17,7 @@ import {
   createInitialSkeletonState,
   HUMANOID_SKELETON,
   BONE_COLORS,
+  getBoneWorldPosition,
 } from './types';
 import { AnimationTemplateType, loadAnimationTemplate, ANIMATION_TEMPLATES } from './animationTemplates';
 import {
@@ -267,45 +268,57 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   setupHumanoidIK: () => {
     const bones = get().bones;
     const boneNameToId = new Map(bones.map(b => [b.name, b.id]));
-
-    // Find root bone to determine scale
-    const rootBone = bones.find(b => b.name === 'root');
-    const scaleX = rootBone ? rootBone.x / 32 : 1;
-    const scaleY = rootBone ? rootBone.y / 48 : 1;
+    const boneById = new Map(bones.map(b => [b.id, b]));
 
     // Create IK chains for hands and feet
     const chains: IKChain[] = [];
 
-    const handL = boneNameToId.get('hand_L');
-    if (handL) {
-      const chain = createIKChain('Left Hand', handL, 3);
-      chain.targetX = 20 * scaleX;
-      chain.targetY = 32 * scaleY;
-      chains.push(chain);
+    const handLId = boneNameToId.get('hand_L');
+    if (handLId) {
+      const handBone = boneById.get(handLId);
+      if (handBone) {
+        const pos = getBoneWorldPosition(handBone, bones);
+        const chain = createIKChain('Left Hand', handLId, 3);
+        chain.targetX = pos.x;
+        chain.targetY = pos.y;
+        chains.push(chain);
+      }
     }
 
-    const handR = boneNameToId.get('hand_R');
-    if (handR) {
-      const chain = createIKChain('Right Hand', handR, 3);
-      chain.targetX = 44 * scaleX;
-      chain.targetY = 32 * scaleY;
-      chains.push(chain);
+    const handRId = boneNameToId.get('hand_R');
+    if (handRId) {
+      const handBone = boneById.get(handRId);
+      if (handBone) {
+        const pos = getBoneWorldPosition(handBone, bones);
+        const chain = createIKChain('Right Hand', handRId, 3);
+        chain.targetX = pos.x;
+        chain.targetY = pos.y;
+        chains.push(chain);
+      }
     }
 
-    const footL = boneNameToId.get('foot_L');
-    if (footL) {
-      const chain = createIKChain('Left Foot', footL, 3);
-      chain.targetX = 24 * scaleX;
-      chain.targetY = 60 * scaleY;
-      chains.push(chain);
+    const footLId = boneNameToId.get('foot_L');
+    if (footLId) {
+      const footBone = boneById.get(footLId);
+      if (footBone) {
+        const pos = getBoneWorldPosition(footBone, bones);
+        const chain = createIKChain('Left Foot', footLId, 3);
+        chain.targetX = pos.x;
+        chain.targetY = pos.y;
+        chains.push(chain);
+      }
     }
 
-    const footR = boneNameToId.get('foot_R');
-    if (footR) {
-      const chain = createIKChain('Right Foot', footR, 3);
-      chain.targetX = 40 * scaleX;
-      chain.targetY = 60 * scaleY;
-      chains.push(chain);
+    const footRId = boneNameToId.get('foot_R');
+    if (footRId) {
+      const footBone = boneById.get(footRId);
+      if (footBone) {
+        const pos = getBoneWorldPosition(footBone, bones);
+        const chain = createIKChain('Right Foot', footRId, 3);
+        chain.targetX = pos.x;
+        chain.targetY = pos.y;
+        chains.push(chain);
+      }
     }
 
     // Create constraints for realistic movement
