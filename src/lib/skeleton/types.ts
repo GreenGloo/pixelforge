@@ -63,37 +63,39 @@ export const BONE_COLORS = [
   '#fd79a8', // Pink
 ];
 
-// Common humanoid skeleton presets
+// Common humanoid skeleton presets - positions relative to parent
+// Designed for 64x64 sprite, will be scaled to canvas size
 export const HUMANOID_SKELETON: Omit<Bone, 'id'>[] = [
-  { name: 'root', parentId: null, x: 32, y: 48, rotation: 0, length: 0, color: BONE_COLORS[0] },
-  { name: 'spine', parentId: 'root', x: 0, y: -8, rotation: 0, length: 8, color: BONE_COLORS[1] },
-  { name: 'chest', parentId: 'spine', x: 0, y: -8, rotation: 0, length: 8, color: BONE_COLORS[1] },
+  // Core
+  { name: 'root', parentId: null, x: 32, y: 40, rotation: 0, length: 0, color: BONE_COLORS[0] },
+  { name: 'spine', parentId: 'root', x: 0, y: -6, rotation: 0, length: 6, color: BONE_COLORS[1] },
+  { name: 'chest', parentId: 'spine', x: 0, y: -6, rotation: 0, length: 6, color: BONE_COLORS[1] },
   { name: 'neck', parentId: 'chest', x: 0, y: -4, rotation: 0, length: 4, color: BONE_COLORS[2] },
-  { name: 'head', parentId: 'neck', x: 0, y: -6, rotation: 0, length: 6, color: BONE_COLORS[2] },
+  { name: 'head', parentId: 'neck', x: 0, y: -8, rotation: 0, length: 8, color: BONE_COLORS[2] },
 
-  // Left arm
-  { name: 'shoulder_L', parentId: 'chest', x: -6, y: 0, rotation: -90, length: 2, color: BONE_COLORS[3] },
-  { name: 'upper_arm_L', parentId: 'shoulder_L', x: 0, y: 0, rotation: 0, length: 6, color: BONE_COLORS[3] },
-  { name: 'lower_arm_L', parentId: 'upper_arm_L', x: 6, y: 0, rotation: 0, length: 6, color: BONE_COLORS[3] },
-  { name: 'hand_L', parentId: 'lower_arm_L', x: 6, y: 0, rotation: 0, length: 3, color: BONE_COLORS[3] },
+  // Left arm - positions are screen coordinates relative to parent
+  { name: 'shoulder_L', parentId: 'chest', x: -8, y: -2, rotation: 0, length: 2, color: BONE_COLORS[3] },
+  { name: 'upper_arm_L', parentId: 'shoulder_L', x: -6, y: 4, rotation: 0, length: 6, color: BONE_COLORS[3] },
+  { name: 'lower_arm_L', parentId: 'upper_arm_L', x: -4, y: 6, rotation: 0, length: 6, color: BONE_COLORS[3] },
+  { name: 'hand_L', parentId: 'lower_arm_L', x: -2, y: 4, rotation: 0, length: 3, color: BONE_COLORS[3] },
 
   // Right arm
-  { name: 'shoulder_R', parentId: 'chest', x: 6, y: 0, rotation: 90, length: 2, color: BONE_COLORS[4] },
-  { name: 'upper_arm_R', parentId: 'shoulder_R', x: 0, y: 0, rotation: 0, length: 6, color: BONE_COLORS[4] },
-  { name: 'lower_arm_R', parentId: 'upper_arm_R', x: 6, y: 0, rotation: 0, length: 6, color: BONE_COLORS[4] },
-  { name: 'hand_R', parentId: 'lower_arm_R', x: 6, y: 0, rotation: 0, length: 3, color: BONE_COLORS[4] },
+  { name: 'shoulder_R', parentId: 'chest', x: 8, y: -2, rotation: 0, length: 2, color: BONE_COLORS[4] },
+  { name: 'upper_arm_R', parentId: 'shoulder_R', x: 6, y: 4, rotation: 0, length: 6, color: BONE_COLORS[4] },
+  { name: 'lower_arm_R', parentId: 'upper_arm_R', x: 4, y: 6, rotation: 0, length: 6, color: BONE_COLORS[4] },
+  { name: 'hand_R', parentId: 'lower_arm_R', x: 2, y: 4, rotation: 0, length: 3, color: BONE_COLORS[4] },
 
   // Left leg
-  { name: 'hip_L', parentId: 'root', x: -4, y: 4, rotation: 90, length: 2, color: BONE_COLORS[5] },
-  { name: 'upper_leg_L', parentId: 'hip_L', x: 0, y: 0, rotation: 0, length: 8, color: BONE_COLORS[5] },
-  { name: 'lower_leg_L', parentId: 'upper_leg_L', x: 8, y: 0, rotation: 0, length: 8, color: BONE_COLORS[5] },
-  { name: 'foot_L', parentId: 'lower_leg_L', x: 8, y: 0, rotation: -90, length: 4, color: BONE_COLORS[5] },
+  { name: 'hip_L', parentId: 'root', x: -6, y: 4, rotation: 0, length: 2, color: BONE_COLORS[5] },
+  { name: 'upper_leg_L', parentId: 'hip_L', x: -2, y: 10, rotation: 0, length: 10, color: BONE_COLORS[5] },
+  { name: 'lower_leg_L', parentId: 'upper_leg_L', x: 0, y: 10, rotation: 0, length: 10, color: BONE_COLORS[5] },
+  { name: 'foot_L', parentId: 'lower_leg_L', x: -2, y: 4, rotation: 0, length: 4, color: BONE_COLORS[5] },
 
   // Right leg
-  { name: 'hip_R', parentId: 'root', x: 4, y: 4, rotation: 90, length: 2, color: BONE_COLORS[6] },
-  { name: 'upper_leg_R', parentId: 'hip_R', x: 0, y: 0, rotation: 0, length: 8, color: BONE_COLORS[6] },
-  { name: 'lower_leg_R', parentId: 'upper_leg_R', x: 8, y: 0, rotation: 0, length: 8, color: BONE_COLORS[6] },
-  { name: 'foot_R', parentId: 'lower_leg_R', x: 8, y: 0, rotation: -90, length: 4, color: BONE_COLORS[6] },
+  { name: 'hip_R', parentId: 'root', x: 6, y: 4, rotation: 0, length: 2, color: BONE_COLORS[6] },
+  { name: 'upper_leg_R', parentId: 'hip_R', x: 2, y: 10, rotation: 0, length: 10, color: BONE_COLORS[6] },
+  { name: 'lower_leg_R', parentId: 'upper_leg_R', x: 0, y: 10, rotation: 0, length: 10, color: BONE_COLORS[6] },
+  { name: 'foot_R', parentId: 'lower_leg_R', x: 2, y: 4, rotation: 0, length: 4, color: BONE_COLORS[6] },
 ];
 
 // Helper functions
