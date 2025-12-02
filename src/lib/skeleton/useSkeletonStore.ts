@@ -268,38 +268,43 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
     const bones = get().bones;
     const boneNameToId = new Map(bones.map(b => [b.name, b.id]));
 
+    // Find root bone to determine scale
+    const rootBone = bones.find(b => b.name === 'root');
+    const scaleX = rootBone ? rootBone.x / 32 : 1;
+    const scaleY = rootBone ? rootBone.y / 48 : 1;
+
     // Create IK chains for hands and feet
     const chains: IKChain[] = [];
 
     const handL = boneNameToId.get('hand_L');
     if (handL) {
       const chain = createIKChain('Left Hand', handL, 3);
-      chain.targetX = 20;
-      chain.targetY = 32;
+      chain.targetX = 20 * scaleX;
+      chain.targetY = 32 * scaleY;
       chains.push(chain);
     }
 
     const handR = boneNameToId.get('hand_R');
     if (handR) {
       const chain = createIKChain('Right Hand', handR, 3);
-      chain.targetX = 44;
-      chain.targetY = 32;
+      chain.targetX = 44 * scaleX;
+      chain.targetY = 32 * scaleY;
       chains.push(chain);
     }
 
     const footL = boneNameToId.get('foot_L');
     if (footL) {
       const chain = createIKChain('Left Foot', footL, 3);
-      chain.targetX = 24;
-      chain.targetY = 60;
+      chain.targetX = 24 * scaleX;
+      chain.targetY = 60 * scaleY;
       chains.push(chain);
     }
 
     const footR = boneNameToId.get('foot_R');
     if (footR) {
       const chain = createIKChain('Right Foot', footR, 3);
-      chain.targetX = 40;
-      chain.targetY = 60;
+      chain.targetX = 40 * scaleX;
+      chain.targetY = 60 * scaleY;
       chains.push(chain);
     }
 
@@ -586,8 +591,8 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
       });
     }
 
-    // Arms
-    const armL = boneNameToId.get('upperArm_L');
+    // Arms (skeleton uses upper_arm_L, not upperArm_L)
+    const armL = boneNameToId.get('upper_arm_L');
     if (armL) {
       parts.push({
         id: crypto.randomUUID(),
@@ -602,7 +607,7 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
       });
     }
 
-    const armR = boneNameToId.get('upperArm_R');
+    const armR = boneNameToId.get('upper_arm_R');
     if (armR) {
       parts.push({
         id: crypto.randomUUID(),
@@ -617,8 +622,8 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
       });
     }
 
-    // Legs
-    const legL = boneNameToId.get('upperLeg_L');
+    // Legs (skeleton uses upper_leg_L, not upperLeg_L)
+    const legL = boneNameToId.get('upper_leg_L');
     if (legL) {
       parts.push({
         id: crypto.randomUUID(),
@@ -633,7 +638,7 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
       });
     }
 
-    const legR = boneNameToId.get('upperLeg_R');
+    const legR = boneNameToId.get('upper_leg_R');
     if (legR) {
       parts.push({
         id: crypto.randomUUID(),
