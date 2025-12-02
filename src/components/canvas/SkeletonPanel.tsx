@@ -327,28 +327,45 @@ export function SkeletonPanel() {
     setGeneratedFrames([]);
 
     try {
-      // Generate pose descriptions from current animation keyframes
-      const poseDescriptions = currentAnimation.keyframes.map((kf, i) => {
-        // Use describePose if available, otherwise create a basic description
-        const poseDesc = describePose ? describePose(bones, kf.boneTransforms) : `pose frame ${i + 1}`;
-        return poseDesc;
-      });
+      // Detect if this is a known animation type by name
+      const animName = currentAnimation.name.toLowerCase();
+      let animationType: string | undefined;
 
-      // If no keyframes, use current pose
-      if (poseDescriptions.length === 0) {
+      // Match animation name to preset types
+      if (animName.includes('walk')) animationType = 'walk';
+      else if (animName.includes('run')) animationType = 'run';
+      else if (animName.includes('idle')) animationType = 'idle';
+      else if (animName.includes('attack')) animationType = 'attack';
+      else if (animName.includes('jump')) animationType = 'jump';
+
+      // Build request - prefer animation type for better pose descriptions
+      const requestBody: Record<string, unknown> = {
+        characterPrompt: aiCharacterPrompt,
+        width: 64,
+        height: 64,
+      };
+
+      if (animationType) {
+        // Use preset animation type for distinct pose descriptions
+        requestBody.animationType = animationType;
+        console.log(`Using preset animation type: ${animationType}`);
+      } else if (currentAnimation.keyframes.length > 0) {
+        // Fallback: generate descriptions from keyframes
+        const poseDescriptions = currentAnimation.keyframes.map((kf, i) => {
+          const poseDesc = describePose ? describePose(bones, kf.boneTransforms) : `pose frame ${i + 1}`;
+          return poseDesc;
+        });
+        requestBody.poseDescriptions = poseDescriptions;
+      } else {
+        // No keyframes - use current pose
         const currentDesc = describePose ? describePose(bones, currentTransforms) : 'standing pose';
-        poseDescriptions.push(currentDesc);
+        requestBody.poseDescriptions = [currentDesc];
       }
 
       const response = await fetch('/api/skeleton-animate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          characterPrompt: aiCharacterPrompt,
-          poseDescriptions,
-          width: 64,
-          height: 64,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
