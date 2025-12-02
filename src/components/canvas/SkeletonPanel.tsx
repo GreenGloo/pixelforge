@@ -90,6 +90,7 @@ export function SkeletonPanel() {
     setCurrentTransforms: setStoreTransforms,
     animationEnabled,
     toggleAnimation,
+    loadAdaptiveSkeleton,
   } = useSkeletonStore();
 
   const [currentTransforms, setCurrentTransforms] = useState<Record<string, BoneTransform>>({});
@@ -267,6 +268,43 @@ export function SkeletonPanel() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleQuickKeyframeSave]);
+
+  // Handle loading adaptive skeleton that fits the sprite
+  const handleLoadAdaptiveSkeleton = useCallback(() => {
+    const frame = frames[currentFrameIndex];
+    if (!frame || frame.layers.length === 0) {
+      // No sprite - fall back to default humanoid
+      loadHumanoidSkeleton(width, height);
+      toast.success('Loaded default humanoid skeleton');
+      return;
+    }
+
+    // Composite all visible layers into a single pixel array
+    const compositePixels = new Uint8ClampedArray(width * height * 4);
+
+    for (const layer of frame.layers) {
+      if (!layer.visible) continue;
+
+      for (let i = 0; i < layer.pixels.length; i += 4) {
+        const srcAlpha = layer.pixels[i + 3] * layer.opacity;
+        const dstAlpha = compositePixels[i + 3];
+
+        if (srcAlpha === 0) continue;
+
+        // Simple alpha compositing
+        const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha / 255);
+        if (outAlpha > 0) {
+          compositePixels[i] = (layer.pixels[i] * srcAlpha + compositePixels[i] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 1] = (layer.pixels[i + 1] * srcAlpha + compositePixels[i + 1] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 2] = (layer.pixels[i + 2] * srcAlpha + compositePixels[i + 2] * dstAlpha * (1 - srcAlpha / 255)) / outAlpha;
+          compositePixels[i + 3] = outAlpha;
+        }
+      }
+    }
+
+    loadAdaptiveSkeleton(width, height, compositePixels);
+    toast.success('Skeleton fitted to sprite');
+  }, [frames, currentFrameIndex, width, height, loadAdaptiveSkeleton, loadHumanoidSkeleton]);
 
   // Handle auto-rigging the sprite
   const handleAutoRig = useCallback(() => {
@@ -452,7 +490,8 @@ export function SkeletonPanel() {
               variant="outline"
               size="sm"
               className="h-7 text-xs flex-1"
-              onClick={() => loadHumanoidSkeleton(width, height)}
+              onClick={handleLoadAdaptiveSkeleton}
+              title="Load humanoid skeleton fitted to sprite"
             >
               <User className="w-3 h-3 mr-1" /> Humanoid
             </Button>

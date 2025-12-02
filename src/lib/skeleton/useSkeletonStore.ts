@@ -75,6 +75,7 @@ interface SkeletonStore extends SkeletonState {
 
   // Skeleton presets
   loadHumanoidSkeleton: (canvasWidth?: number, canvasHeight?: number) => void;
+  loadAdaptiveSkeleton: (width: number, height: number, pixels: Uint8ClampedArray) => void;
   clearSkeleton: () => void;
 
   // Pose actions
@@ -223,6 +224,127 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
         color: template.color,
       });
     }
+
+    set({ bones, selectedBoneId: bones[0]?.id || null, spriteParts: [] });
+  },
+
+  // Adaptive skeleton that fits the actual sprite
+  loadAdaptiveSkeleton: (width, height, pixels) => {
+    // Detect actual sprite bounds by scanning for non-transparent pixels
+    let minY = height, maxY = 0, minX = width, maxX = 0;
+
+    // Also track column-wise bounds for body shape analysis
+    const columnMinY: number[] = new Array(width).fill(height);
+    const columnMaxY: number[] = new Array(width).fill(0);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        if (pixels[idx + 3] > 10) { // has some alpha
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          columnMinY[x] = Math.min(columnMinY[x], y);
+          columnMaxY[x] = Math.max(columnMaxY[x], y);
+        }
+      }
+    }
+
+    if (maxY <= minY || maxX <= minX) return; // No pixels found
+
+    const spriteH = maxY - minY;
+    const spriteW = maxX - minX;
+    const centerX = minX + spriteW / 2;
+
+    // Analyze body proportions by scanning horizontal slices
+    // Find where the "head" likely ends (narrowing after top)
+    // Find where "torso" is (wider middle section)
+    // Find where "legs" start (split at bottom)
+
+    const getRowWidth = (y: number): number => {
+      let rowMinX = width, rowMaxX = 0;
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        if (pixels[idx + 3] > 10) {
+          rowMinX = Math.min(rowMinX, x);
+          rowMaxX = Math.max(rowMaxX, x);
+        }
+      }
+      return rowMaxX > rowMinX ? rowMaxX - rowMinX : 0;
+    };
+
+    // Sample widths at different heights
+    const topWidth = getRowWidth(minY + Math.floor(spriteH * 0.1));
+    const upperWidth = getRowWidth(minY + Math.floor(spriteH * 0.25));
+    const midWidth = getRowWidth(minY + Math.floor(spriteH * 0.5));
+    const lowerWidth = getRowWidth(minY + Math.floor(spriteH * 0.75));
+
+    // Estimate body section proportions based on sprite analysis
+    // Head is typically where sprite narrows at top
+    const headEndY = minY + spriteH * 0.25;
+    const torsoEndY = minY + spriteH * 0.55;
+
+    // Create bones positioned for this specific sprite
+    const bones: Bone[] = [];
+    const nameToId = new Map<string, string>();
+
+    const addBone = (name: string, parentName: string | null, x: number, y: number, length: number, color: string) => {
+      const id = crypto.randomUUID();
+      nameToId.set(name, id);
+      const parentId = parentName ? nameToId.get(parentName) || null : null;
+      bones.push({ id, name, parentId, x, y, rotation: 0, length, color });
+    };
+
+    // Root at hip level (slightly above center)
+    const rootY = minY + spriteH * 0.5;
+    addBone('root', null, centerX, rootY, 0, BONE_COLORS[0]);
+
+    // Spine going up from root
+    const spineLen = spriteH * 0.12;
+    addBone('spine', 'root', 0, -spineLen, spineLen, BONE_COLORS[1]);
+
+    // Chest
+    const chestLen = spriteH * 0.12;
+    addBone('chest', 'spine', 0, -chestLen, chestLen, BONE_COLORS[1]);
+
+    // Neck
+    const neckLen = spriteH * 0.06;
+    addBone('neck', 'chest', 0, -neckLen, neckLen, BONE_COLORS[2]);
+
+    // Head
+    const headLen = spriteH * 0.15;
+    addBone('head', 'neck', 0, -headLen, headLen, BONE_COLORS[2]);
+
+    // Calculate arm positions based on sprite width at shoulder level
+    const shoulderWidth = midWidth * 0.4; // Distance from center to shoulder
+
+    // Left arm chain
+    addBone('shoulder_L', 'chest', -shoulderWidth * 0.5, -chestLen * 0.3, spriteW * 0.05, BONE_COLORS[3]);
+    addBone('upper_arm_L', 'shoulder_L', -spriteW * 0.08, spriteH * 0.08, spriteH * 0.12, BONE_COLORS[3]);
+    addBone('lower_arm_L', 'upper_arm_L', -spriteW * 0.06, spriteH * 0.1, spriteH * 0.12, BONE_COLORS[3]);
+    addBone('hand_L', 'lower_arm_L', -spriteW * 0.03, spriteH * 0.06, spriteH * 0.05, BONE_COLORS[3]);
+
+    // Right arm chain
+    addBone('shoulder_R', 'chest', shoulderWidth * 0.5, -chestLen * 0.3, spriteW * 0.05, BONE_COLORS[4]);
+    addBone('upper_arm_R', 'shoulder_R', spriteW * 0.08, spriteH * 0.08, spriteH * 0.12, BONE_COLORS[4]);
+    addBone('lower_arm_R', 'upper_arm_R', spriteW * 0.06, spriteH * 0.1, spriteH * 0.12, BONE_COLORS[4]);
+    addBone('hand_R', 'lower_arm_R', spriteW * 0.03, spriteH * 0.06, spriteH * 0.05, BONE_COLORS[4]);
+
+    // Calculate leg positions based on sprite width at hip level
+    const hipWidth = spriteW * 0.15;
+
+    // Left leg chain
+    addBone('hip_L', 'root', -hipWidth, spriteH * 0.05, spriteH * 0.03, BONE_COLORS[5]);
+    addBone('upper_leg_L', 'hip_L', -spriteW * 0.02, spriteH * 0.18, spriteH * 0.18, BONE_COLORS[5]);
+    addBone('lower_leg_L', 'upper_leg_L', 0, spriteH * 0.18, spriteH * 0.18, BONE_COLORS[5]);
+    addBone('foot_L', 'lower_leg_L', -spriteW * 0.03, spriteH * 0.06, spriteH * 0.06, BONE_COLORS[5]);
+
+    // Right leg chain
+    addBone('hip_R', 'root', hipWidth, spriteH * 0.05, spriteH * 0.03, BONE_COLORS[6]);
+    addBone('upper_leg_R', 'hip_R', spriteW * 0.02, spriteH * 0.18, spriteH * 0.18, BONE_COLORS[6]);
+    addBone('lower_leg_R', 'upper_leg_R', 0, spriteH * 0.18, spriteH * 0.18, BONE_COLORS[6]);
+    addBone('foot_R', 'lower_leg_R', spriteW * 0.03, spriteH * 0.06, spriteH * 0.06, BONE_COLORS[6]);
 
     set({ bones, selectedBoneId: bones[0]?.id || null, spriteParts: [] });
   },
