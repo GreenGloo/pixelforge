@@ -73,7 +73,7 @@ interface SkeletonStore extends SkeletonState {
   setupHumanoidIK: () => void;
 
   // Skeleton presets
-  loadHumanoidSkeleton: () => void;
+  loadHumanoidSkeleton: (canvasWidth?: number, canvasHeight?: number) => void;
   clearSkeleton: () => void;
 
   // Pose actions
@@ -191,9 +191,13 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
   },
 
   // Skeleton presets
-  loadHumanoidSkeleton: () => {
+  loadHumanoidSkeleton: (canvasWidth = 64, canvasHeight = 64) => {
     const bones: Bone[] = [];
     const nameToId = new Map<string, string>();
+
+    // Scale factor based on canvas size (template is for 64x64)
+    const scaleX = canvasWidth / 64;
+    const scaleY = canvasHeight / 64;
 
     // Create bones with proper IDs and parent references
     for (const template of HUMANOID_SKELETON) {
@@ -202,19 +206,24 @@ export const useSkeletonStore = create<SkeletonStore>((set, get) => ({
 
       const parentId = template.parentId ? nameToId.get(template.parentId) || null : null;
 
+      // Scale positions - root bone gets absolute position, children are relative
+      const isRoot = template.parentId === null;
+      const x = isRoot ? template.x * scaleX : template.x * scaleX;
+      const y = isRoot ? template.y * scaleY : template.y * scaleY;
+
       bones.push({
         id,
         name: template.name,
         parentId,
-        x: template.x,
-        y: template.y,
+        x,
+        y,
         rotation: template.rotation,
-        length: template.length,
+        length: template.length * Math.min(scaleX, scaleY),
         color: template.color,
       });
     }
 
-    set({ bones, selectedBoneId: bones[0]?.id || null });
+    set({ bones, selectedBoneId: bones[0]?.id || null, spriteParts: [] });
   },
 
   clearSkeleton: () => {

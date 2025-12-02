@@ -435,7 +435,7 @@ export function SkeletonPanel() {
               variant="outline"
               size="sm"
               className="h-7 text-xs flex-1"
-              onClick={loadHumanoidSkeleton}
+              onClick={() => loadHumanoidSkeleton(width, height)}
             >
               <User className="w-3 h-3 mr-1" /> Humanoid
             </Button>
